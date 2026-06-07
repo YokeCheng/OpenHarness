@@ -19,6 +19,7 @@ from openharness.tools.file_read_tool import FileReadTool
 from openharness.tools.file_write_tool import FileWriteTool
 from openharness.tools.financial_copywriter import FinancialCopywriterTool
 from openharness.tools.financial_hotspot_scanner import FinancialHotSpotScannerTool
+from openharness.tools.infographic_renderer import InfographicRendererTool
 from openharness.tools.glob_tool import GlobTool
 from openharness.tools.grep_tool import GrepTool
 from openharness.tools.image_generation_tool import ImageGenerationTool
@@ -92,6 +93,7 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         TeamDeleteTool(),
         FinancialCopywriterTool(),
         FinancialHotSpotScannerTool(),
+        InfographicRendererTool(),
     ):
         registry.register(tool)
     if mcp_manager is not None:
