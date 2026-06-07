@@ -17,6 +17,7 @@ from openharness.tools.exit_worktree_tool import ExitWorktreeTool
 from openharness.tools.file_edit_tool import FileEditTool
 from openharness.tools.file_read_tool import FileReadTool
 from openharness.tools.file_write_tool import FileWriteTool
+from openharness.tools.financial_hotspot_scanner import FinancialHotSpotScannerTool
 from openharness.tools.glob_tool import GlobTool
 from openharness.tools.grep_tool import GrepTool
 from openharness.tools.image_generation_tool import ImageGenerationTool
@@ -88,6 +89,7 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         SendMessageTool(),
         TeamCreateTool(),
         TeamDeleteTool(),
+        FinancialHotSpotScannerTool(),
     ):
         registry.register(tool)
     if mcp_manager is not None:

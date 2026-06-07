@@ -286,15 +286,14 @@ async def test_scanner_metadata_structure(tmp_path: Path, monkeypatch):
 # Test 9: registered in default registry
 # ---------------------------------------------------------------------------
 
-def test_scanner_can_be_registered_in_registry():
-    """Verify the tool can be manually registered in a ToolRegistry."""
-    from openharness.tools.base import ToolRegistry
-    registry = ToolRegistry()
-    tool = FinancialHotSpotScannerTool()
-    registry.register(tool)
-    retrieved = registry.get("financial_hotspot_scanner")
-    assert retrieved is not None
-    assert isinstance(retrieved, FinancialHotSpotScannerTool)
+def test_scanner_registered_in_default_registry():
+    """Verify the tool is registered in the default tool registry."""
+    from openharness.tools import create_default_tool_registry
+
+    registry = create_default_tool_registry()
+    tool = registry.get("financial_hotspot_scanner")
+    assert tool is not None
+    assert tool.name == "financial_hotspot_scanner"
 
 
 # ---------------------------------------------------------------------------
