@@ -370,17 +370,26 @@ ToolResult.metadata：
 
 ### 7.2 Skill 文件
 
-位置: `src/openharness/skills/financial_hotspot_pipeline.md`
+**位置**: `src/openharness/skills/bundled/content/financial_hotspot_pipeline.md`
+
+**放置方式**: 作为 bundled skill，随平台发布，启动时自动加载。用户无需手动安装或配置。
+
+**注册方式**: OpenHarness 的 SkillRegistry 在启动时扫描 `bundled/content/` 目录下的 `.md` 文件并自动注册。slash command `/financial-hotspot-pipeline` 在 Skill 被匹配时自动可用。用户输入包含"热点生图"等关键词时，Agent 通过 Skill 匹配自动加载。
+
+### 7.3 Skill 内容
+
+采用**指令式**步骤描述风格：每一步明确写 Tool 名称、参数、metadata 字段传递关系，Agent 按指令执行。
 
 ```markdown
 ---
 name: financial-hotspot-pipeline
-description: 执行财经热点抓取→文案生成→兴风向长图的全流程
+description: 执行财经热点抓取→文案生成→兴风向长图的全流程自动化
+user-invocable: true
 ---
 
 # 财经热点生图流程
 
-当收到"执行热点生图"或"/financial-hotspot-pipeline"指令时，按以下步骤操作：
+当收到"热点生图"、"财经热点生图"、"/financial-hotspot-pipeline"指令时，按以下步骤操作：
 
 ## 步骤1：抓取热点
 
@@ -389,38 +398,56 @@ description: 执行财经热点抓取→文案生成→兴风向长图的全流�
 - categories: ["policy", "industry", "market", "company"]
 - max_items: 10
 
-保存步骤1的 ToolResult.metadata["hotspots"] 数据供后续步骤使用。
-Agent 应将 metadata["hotspots"] 序列化为 JSON 字符串，作为步骤2的 hotspot_data 参数传入。
+保存 ToolResult.metadata["hotspots"] 数据供后续步骤使用。
 
-## 步骤2：生成文案
+**错误处理**：
+- 所有源抓取失败 → Pipeline 终止，返回错误信息
+- 部分源失败 → 继续执行，在最终 pipeline_log.json 中记录失败的源
 
-对每条热点，调用 FinancialCopywriterTool：
-- hotspot_data: 将步骤1 ToolResult.metadata["hotspots"] 序列化为 JSON 字符串传入
+## 步骤2：生成文案（按 category 分组）
+
+将步骤1的 metadata["hotspots"] 按 category 字段分组：
+- policy 类 → 一篇"政策解读"
+- industry 类 → 一篇"行业分析"
+- market 类 → 一篇"行情分析"
+- company 类 → 一篇"公司动态"
+
+对每个分组，调用 FinancialCopywriterTool：
+- hotspot_data: 该分组 hotspots 的 JSON 序列化字符串（json.dumps(metadata["hotspots"] 过滤该 category））
 - framework: "xingfengxiang"
 - style: "professional_accessible"
+- model: null（自动选择）
 
-检查 compliance_check：
-- 如果 ToolResult.metadata["compliance_check"]["passed"] == False，记录问题并跳过该热点
-- 如果 passed == True，继续步骤3
+**合规检查**：
+- 如果 ToolResult.metadata["compliance_check"]["passed"] == False：
+  → 保存文案为 non_compliant（文件名后缀 _nc.md），跳过步骤3渲染，Pipeline 继续
+- 如果 passed == True：继续步骤3
+
+**LLM 调用失败处理**：
+- 调用失败时，按后备模型列表重试一次：glm-4 → qwen-max → deepseek-v3
+- 仍失败 → 跳过该分组，记录失败原因，Pipeline 继续处理其他分组
 
 ## 步骤3：生成长图
 
-对每篇合规文案，调用 InfographicRendererTool：
-- article_content: 从步骤2的 article_markdown
-- article_title: 热点标题
+对每篇合规通过的文案，调用 InfographicRendererTool：
+- article_content: 来自步骤2 ToolResult.metadata["article_markdown"]
+- article_title: 该分组的代表性热点标题
 - template: "xingfengxiang_default"
 - ai_decorations: true
+- output_dir: "{cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/infographics"
 
-检查尺寸合规：
-- 如果 ToolResult.metadata["size_compliance"] == False，必须重新渲染（最多重试3次）
-- 如果重试3次仍不合规，标记为失败并记录原因
+**尺寸合规检查**（一票否决项）：
+- 如果 ToolResult.metadata["size_compliance"] == False：
+  → 相同参数重新调用 InfographicRendererTool，最多重试 3 次
+  → 3 次仍不合规 → 标记为 size_failed，记录原因，Pipeline 继续
 
 ## 步骤4：保存与记录
 
-将所有结果保存到 /data/financial_hotspot_pipeline/YYYY-MM-DD/ 目录：
-- hotspots.json — 原始热点数据（步骤1完整输出）
-- articles/YYYY-MM-DD_HH-MM_title.md — 每篇文案 markdown
-- infographics/YYYY-MM-DD_HH-MM_title.png — 每张长图 PNG
+将所有结果保存到 {cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/ 目录：
+- hotspots.json — 原始热点数据（步骤1完整 metadata.hotspots）
+- articles/{category}.md — 每篇合规文案 markdown
+- articles/{category}_nc.md — 非合规文案（标记 nc）
+- infographics/{category}.png — 每张合规长图 PNG
 - pipeline_log.json — 全流程日志
 
 pipeline_log.json 格式：
@@ -428,38 +455,53 @@ pipeline_log.json 格式：
     "run_time": "2026-06-07T09:00:00",
     "trigger": "cron" | "manual",
     "hotspots_scanned": 15,
-    "articles_generated": 12,
-    "articles_compliant": 10,
-    "infographics_generated": 10,
-    "infographics_size_compliant": 10,
-    "failed_items": [],
+    "articles_generated": 4,
+    "articles_compliant": 3,
+    "non_compliant": ["company"],
+    "infographics_generated": 3,
+    "infographics_size_compliant": 3,
+    "size_failed": [],
+    "failed_items": [
+        {"category": "company", "reason": "LLM调用失败（glm-4 + qwen-max均失败）",
+         "models_tried": ["glm-4", "qwen-max"]}
+    ],
     "total_duration_seconds": 180,
     "model_used": "glm-4"
 }
 
+## 触发方式
+
+- 斜杠命令：/financial-hotspot-pipeline
+- 关键词："热点生图"、"财经热点生图"、"执行热点生图流程"
+
+## Cron 定时配置（可选）
+
+如需每天自动执行，可使用 CronCreate 工具配置：
+- cron: "0 9 * * *"
+- prompt: "/financial-hotspot-pipeline"
+- durable: true
+
+或通过命令行：oh cron start
+
 ## 注意事项
 
 - 尺寸合规是强制要求（一票否决项），不合规的图片必须重新渲染
-- 所有中间产物必须保存，不可丢弃
+- 所有中间产物必须保存，不可丢弃（包括 non_compliant 文案）
 - 记录端到端耗时，用于效率对比
-- 合规未通过的文案仍然保存（标记为 non_compliant），供人工审核
+- 合规未通过的文案仍然保存（标记 _nc），供人工审核
 - 生成成功率需 ≥ 98%，失败的条目记录详细原因
 ```
 
-### 7.3 Cron 配置
+### 7.4 触发机制
 
-```bash
-# 在 OpenHarness 对话中配置
-cron: "0 9 * * *"  # 每天 9:00
-prompt: "/financial-hotspot-pipeline"
-```
+**窄触发策略**：只在以下明确场景触发，避免误触发：
+- 斜杠命令 `/financial-hotspot-pipeline`
+- 关键词"热点生图"、"财经热点生图"、"执行热点生图流程"
+- 不会在普通的"财经"、"热点"、"文案"等单独关键词时触发
 
-或通过 CLI：
-```bash
-oh cron start
-```
+**Cron 配置**：说明文档式。Skill 内容中包含 CronCreate 配置指南，用户按需自行设置。不自动创建 cron job。
 
-### 7.4 手动触发
+### 7.5 手动触发
 
 在 OpenHarness 对话中输入：
 ```
@@ -467,14 +509,21 @@ oh cron start
 ```
 或：
 ```
-执行热点生图流程
+热点生图
 ```
 
-### 7.5 Skill 注册方式
+### 7.6 设计决策记录
 
-Skill 文件放置在 `src/openharness/skills/financial_hotspot_pipeline.md` 后，OpenHarness 的 SkillRegistry 在启动时自动扫描 skills 目录并注册。
-slash command `/financial-hotspot-pipeline` 会在 Skill 被匹配时自动可用，无需额外注册步骤。
-用户输入包含"热点生图"等关键词时，Agent 也会通过 Skill 匹匹配自动加载此 Skill。
+| 决策项 | 选择 | 理由 |
+|--------|------|------|
+| Skill 位置 | bundled/content/ | 随平台发布，自动加载，无需手动安装 |
+| 步骤风格 | 指令式 | 结果可控、可复现，明确 Tool 名称和参数 |
+| 文案生成方式 | 按 category 分组 | 兼顾深度和效率，文章聚焦且有清晰主题 |
+| 合规失败处理 | 保存 non_compliant，跳过渲染 | 简单可靠，问题留给人工审核 |
+| LLM 失败处理 | 换模型重试一次再跳过 | 增加成功概率，后备列表：glm-4→qwen-max→deepseek-v3 |
+| 尺寸不合规重试 | 相同参数重试 3 次 | 简单直接，符合设计文档的一票否决要求 |
+| 触发范围 | 窄触发（"热点生图"等特定词） | 避免误触发 |
+| Cron 配置 | 说明文档式 | 用户按需设置，不自动创建 |
 
 ---
 
@@ -489,15 +538,16 @@ Step 1: FinancialHotSpotScannerTool
   输入: sources=["eastmoney","sina_hot","weibo_hot"], categories, max_items
   输出: 格式化文本 + metadata.hotspots (JSON)
          ↓
-Step 2: FinancialCopywriterTool (per hotspot)
-  输入: metadata.hotspots + framework + style + model
+Step 2: FinancialCopywriterTool (per category group: policy/industry/market/company)
+  输入: 该分组 hotspots JSON + framework + style + model
   输出: 文案 markdown + compliance_check
-  ↓ 不合规 → 跳过（标记 non_compliant，仍保存）
+  ↓ 不合规 → 保存 _nc.md，跳过渲染
+  ↓ LLM失败 → 换模型重试一次 → 仍失败则跳过该分组
          ↓
 Step 3: InfographicRendererTool (per compliant article)
-  输入: article markdown + title + template + ai_decorations
+  输入: article markdown + title + template + ai_decorations + output_dir
   输出: PNG 图片 (1080×1920px) + size_compliance
-  ↓ 尺寸不合规 → 重新渲染（最多3次）
+  ↓ 尺寸不合规 → 相同参数重试（最多3次）→ 仍不合规标记 size_failed
          ↓
 Step 4: 保存全流程结果
   hotspots.json | articles/*.md | infographics/*.png | pipeline_log.json
