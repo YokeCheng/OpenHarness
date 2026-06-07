@@ -122,19 +122,44 @@ class FinancialHotSpotScannerTool(BaseTool):
         ]
 
         # Format output text with Chinese labels
-        category_labels: dict[str, str] = {
-            "policy": "政策",
-            "industry": "行业",
-            "market": "市场",
-            "company": "公司",
+        source_labels: dict[str, str] = {
+            "eastmoney": "东方财富",
+            "sina_hot": "新浪热搜",
+            "weibo_hot": "微博热搜",
         }
-        lines = ["金融热点扫描结果"]
-        for idx, item in enumerate(filtered, 1):
-            cat_label = category_labels.get(item.get("category", ""), item.get("category", ""))
-            lines.append(f"{idx}. [{cat_label}] {item['title']}")
-            if item.get("summary"):
-                lines.append(f"   摘要: {item['summary']}")
-            lines.append(f"   来源: {item.get('source', '')} | 链接: {item.get('url', '')}")
+        category_labels: dict[str, str] = {
+            "policy": "政策类",
+            "industry": "行业类",
+            "market": "行情类",
+            "company": "公司类",
+        }
+
+        # Build header with date and total count
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        header = f"财经热点扫描结果 ({today}, 共 {len(filtered)} 条)"
+        lines = [header, ""]
+
+        # Group items by source then category, preserving insertion order
+        groups: dict[tuple[str, str], list[dict[str, str]]] = {}
+        for item in filtered:
+            key = (item.get("source", ""), item.get("category", ""))
+            groups.setdefault(key, []).append(item)
+
+        idx = 1
+        for (source, category), items in groups.items():
+            source_label = source_labels.get(source, source)
+            cat_label = category_labels.get(category, category)
+            lines.append(f"[{source_label}] {cat_label}:")
+            for item in items:
+                lines.append(f"{idx}. {item['title']}")
+                source_display = source_labels.get(item.get("source", ""), item.get("source", ""))
+                lines.append(
+                    f"   来源: {source_display} | 时间: {item.get('published_at', '')} | 分类: {item.get('category', '')}"
+                )
+                if item.get("summary"):
+                    lines.append(f"   摘要: {item['summary']}")
+                lines.append(f"   链接: {item.get('url', '')}")
+                idx += 1
         if errors:
             lines.append("")
             lines.append(f"部分源抓取失败: {', '.join(errors)}")

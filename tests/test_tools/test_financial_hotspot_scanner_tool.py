@@ -104,7 +104,7 @@ async def test_scanner_success_with_mocked_fetch(tmp_path: Path, monkeypatch):
     assert "央行宣布降息" in result.output
     assert "A股大涨" in result.output
     assert "新能源汽车行业蓬勃发展" in result.output
-    assert "金融热点扫描结果" in result.output
+    assert "财经热点扫描结果" in result.output
     assert result.metadata["total_count"] == 3
 
 
