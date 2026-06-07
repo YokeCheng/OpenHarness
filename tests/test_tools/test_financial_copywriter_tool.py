@@ -82,6 +82,11 @@ async def test_copywriter_success_with_mocked_llm(tmp_path: Path, monkeypatch):
         "建议关注利率敏感型板块。\n"
     )
 
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._auto_select_model",
+        lambda: ("fake-key", "https://fake.api/v1", "glm-4"),
+    )
+
     async def fake_call_llm(*, model: str, system_prompt: str, user_prompt: str, api_key: str, base_url: str) -> str:
         del system_prompt, user_prompt, api_key, base_url
         return fake_article
@@ -139,6 +144,11 @@ async def test_copywriter_empty_hotspot_data(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_copywriter_llm_call_failure(tmp_path: Path, monkeypatch):
     context = ToolExecutionContext(cwd=tmp_path)
+
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._auto_select_model",
+        lambda: ("fake-key", "https://fake.api/v1", "glm-4"),
+    )
 
     async def fake_call_llm_error(*, model: str, system_prompt: str, user_prompt: str, api_key: str, base_url: str) -> str:
         raise RuntimeError("API connection failed")
@@ -224,6 +234,11 @@ async def test_copywriter_standard_framework(tmp_path: Path, monkeypatch):
         "## 前景\n市场预计进一步宽松。\n"
     )
 
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._auto_select_model",
+        lambda: ("fake-key", "https://fake.api/v1", "glm-4"),
+    )
+
     async def fake_call_llm(*, model: str, system_prompt: str, user_prompt: str, api_key: str, base_url: str) -> str:
         del system_prompt, user_prompt, api_key, base_url
         return fake_article
@@ -252,6 +267,11 @@ async def test_copywriter_metadata_structure(tmp_path: Path, monkeypatch):
     context = ToolExecutionContext(cwd=tmp_path)
 
     fake_article = "# 兴风向解读\n央行降息0.25个百分点。\n"
+
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._resolve_model_config",
+        lambda model: ("fake-key", "https://fake.api/v1", model),
+    )
 
     async def fake_call_llm(*, model: str, system_prompt: str, user_prompt: str, api_key: str, base_url: str) -> str:
         del system_prompt, user_prompt, api_key, base_url

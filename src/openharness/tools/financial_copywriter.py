@@ -214,6 +214,8 @@ def _check_facts(article: str, hotspots: list[dict[str, str]]) -> dict[str, Any]
     matched_points: int = 0
     total_points: int = 0
 
+    all_direction_terms = set(_DIRECTION_TERMS.keys()) | set(_DIRECTION_TERMS.values())
+
     for hotspot in hotspots:
         title = hotspot.get("title", "")
         total_points += 1
@@ -228,16 +230,33 @@ def _check_facts(article: str, hotspots: list[dict[str, str]]) -> dict[str, Any]
         if (title and title in article) or (core_topic and len(core_topic) > 1 and core_topic in article):
             matched_points += 1
 
-        # Check for contradictory direction terms (always, regardless of match)
-        for correct_term, wrong_term in _DIRECTION_TERMS.items():
-            if correct_term in title and wrong_term in article:
-                issues.append(
-                    f"事实矛盾: 原始信息为'{correct_term}'，文案中出现'{wrong_term}'"
-                )
-            if wrong_term in title and correct_term in article:
-                issues.append(
-                    f"事实矛盾: 原始信息为'{wrong_term}'，文案中出现'{correct_term}'"
-                )
+        # Check direction contradictions when article references the same topic.
+        # For Chinese text (no spaces), split the title by direction terms into segments
+        # and check if any segment (2+ chars) appears in the article.
+        # This avoids false positives (e.g., "房价上涨" hotspot flagging "A股下跌" article).
+        segments: list[str] = []
+        remaining = title
+        for direction in all_direction_terms:
+            while direction in remaining:
+                before, _, after = remaining.partition(direction)
+                if before and len(before) >= 2:
+                    segments.append(before)
+                remaining = after
+        if remaining and len(remaining) >= 2:
+            segments.append(remaining)
+
+        topic_overlap = any(seg in article for seg in segments) if segments else False
+
+        if topic_overlap:
+            for correct_term, wrong_term in _DIRECTION_TERMS.items():
+                if correct_term in title and wrong_term in article:
+                    issues.append(
+                        f"事实矛盾: 原始信息为'{correct_term}'，文案中出现'{wrong_term}'"
+                    )
+                if wrong_term in title and correct_term in article:
+                    issues.append(
+                        f"事实矛盾: 原始信息为'{wrong_term}'，文案中出现'{correct_term}'"
+                    )
 
     confidence = matched_points / max(total_points, 1)
     if issues:
@@ -322,48 +341,11 @@ async def _call_llm(
     api_key: str,
     base_url: str,
 ) -> str:
-    """Call a domestic LLM via OpenAI-compatible API endpoint.
-
-    When *api_key* or *base_url* is empty, the function will resolve the
-    configuration from _PROVIDER_CONFIGS automatically.  This allows the
-    caller to pass placeholder values when the model config is not yet
-    resolved (e.g. during testing when this function is monkeypatched).
-    """
-    # Auto-select model when the given model name is the first candidate
-    # and no explicit model was requested — try _AUTO_SELECT_ORDER.
-    actual_model = model
-    actual_key = api_key
-    actual_url = base_url
-
-    if not actual_key or not actual_url:
-        # Try to resolve config for the specified model first
-        try:
-            resolved_key, resolved_url, resolved_model = _resolve_model_config(actual_model)
-            actual_key = actual_key or resolved_key
-            actual_url = actual_url or resolved_url
-            actual_model = resolved_model
-        except RuntimeError:
-            # The specified model failed — try auto-select
-            for candidate in _AUTO_SELECT_ORDER:
-                try:
-                    c_key, c_url, c_model = _resolve_model_config(candidate)
-                    actual_key = c_key
-                    actual_url = c_url
-                    actual_model = c_model
-                    logger.info("Auto-selected model: %s", actual_model)
-                    break
-                except RuntimeError:
-                    continue
-            if not actual_key or not actual_url:
-                raise RuntimeError(
-                    f"无法自动选择模型：所有候选模型均未配置 API key。"
-                    f"请至少配置以下之一: {', '.join(_AUTO_SELECT_ORDER)}"
-                )
-
-    client = AsyncOpenAI(api_key=actual_key, base_url=actual_url)
+    """Call a domestic LLM via OpenAI-compatible API endpoint."""
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     try:
         response = await client.chat.completions.create(
-            model=actual_model,
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -456,8 +438,17 @@ class FinancialCopywriterTool(BaseTool):
                 is_error=True,
             )
 
-        # 2. Determine model name
-        model_name = arguments.model or _AUTO_SELECT_ORDER[0]
+        # 2. Resolve model configuration
+        try:
+            if arguments.model:
+                api_key, base_url, model_name = _resolve_model_config(arguments.model)
+            else:
+                api_key, base_url, model_name = _auto_select_model()
+        except RuntimeError as exc:
+            return ToolResult(
+                output=str(exc),
+                is_error=True,
+            )
 
         # 3. Build prompts from framework template + style
         framework = arguments.framework
@@ -487,14 +478,14 @@ class FinancialCopywriterTool(BaseTool):
             f"请确保文章内容与上述热点数据的事实一致，不得编造数据或歪曲事实。"
         )
 
-        # 4. Call LLM (api_key/base_url resolved inside _call_llm when not provided)
+        # 4. Call LLM
         try:
             article = await _call_llm(
                 model=model_name,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                api_key="",
-                base_url="",
+                api_key=api_key,
+                base_url=base_url,
             )
         except RuntimeError as exc:
             return ToolResult(
