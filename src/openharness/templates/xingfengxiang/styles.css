@@ -1,0 +1,155 @@
+/* 兴风向 (Xingfengxiang) Infographic Styles */
+/* Standard size: 1080px × 1920px (Alipay channel requirement) */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    width: 1080px;
+    height: 1920px;
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    background: linear-gradient(135deg, #0a1628 0%, #1a2a4a 50%, #0d1b30 100%);
+    color: #e8eaf0;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ── Top Section: Brand + Title + Date ── */
+.header {
+    padding: 80px 60px 40px 60px;
+    background: linear-gradient(180deg, #1a3a6a 0%, transparent 100%);
+}
+
+.brand-tag {
+    display: inline-block;
+    padding: 6px 16px;
+    background: #c8a84e;
+    color: #0a1628;
+    font-size: 20px;
+    font-weight: 700;
+    border-radius: 4px;
+    letter-spacing: 2px;
+    margin-bottom: 24px;
+}
+
+.article-title {
+    font-size: 44px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #ffffff;
+    margin-bottom: 16px;
+}
+
+.article-date {
+    font-size: 18px;
+    color: #8a9bb5;
+    margin-bottom: 8px;
+}
+
+.header-divider {
+    height: 3px;
+    background: linear-gradient(90deg, #c8a84e 0%, #3a6a9a 50%, transparent 100%);
+    margin-top: 30px;
+}
+
+/* ── Middle Section: Content ── */
+.content {
+    padding: 40px 60px;
+}
+
+.section-block {
+    margin-bottom: 40px;
+}
+
+.section-title {
+    font-size: 30px;
+    font-weight: 700;
+    color: #c8a84e;
+    margin-bottom: 16px;
+    padding-left: 16px;
+    border-left: 4px solid #c8a84e;
+}
+
+.section-body {
+    font-size: 22px;
+    line-height: 1.6;
+    color: #d0d8e8;
+}
+
+.data-card {
+    display: inline-block;
+    padding: 16px 24px;
+    background: rgba(58, 106, 154, 0.3);
+    border: 1px solid rgba(200, 168, 78, 0.3);
+    border-radius: 8px;
+    margin: 12px 8px 12px 0;
+    font-size: 20px;
+    color: #c8a84e;
+}
+
+/* ── Bottom Section: Conclusion + Risk + Footer ── */
+.conclusion {
+    padding: 40px 60px;
+    background: rgba(26, 58, 106, 0.5);
+    border-top: 2px solid rgba(200, 168, 78, 0.4);
+}
+
+.conclusion-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: #c8a84e;
+    margin-bottom: 12px;
+}
+
+.conclusion-body {
+    font-size: 22px;
+    line-height: 1.5;
+    color: #d0d8e8;
+}
+
+.risk-warning {
+    margin-top: 24px;
+    padding: 12px 20px;
+    background: rgba(180, 60, 60, 0.2);
+    border: 1px solid rgba(180, 60, 60, 0.4);
+    border-radius: 6px;
+    font-size: 16px;
+    color: #e07070;
+}
+
+.footer {
+    padding: 20px 60px;
+    text-align: center;
+}
+
+.footer-brand {
+    font-size: 16px;
+    color: #6a7a9a;
+}
+
+/* ── AI Decoration Slots ── */
+.decoration-header-illustration {
+    position: absolute;
+    top: 20px;
+    right: 40px;
+    width: 120px;
+    height: 120px;
+}
+
+.decoration-chart-icon {
+    width: 48px;
+    height: 48px;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
+.decoration-footer-badge {
+    display: inline-block;
+    width: 60px;
+    height: 60px;
+    vertical-align: middle;
+    margin-left: 12px;
+}
