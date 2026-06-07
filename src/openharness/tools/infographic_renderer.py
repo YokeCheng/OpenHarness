@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -48,6 +49,10 @@ class InfographicRendererInput(BaseModel):
     ai_decorations: bool = Field(
         default=True,
         description="是否使用AI生成装饰元素（图标、插图等）",
+    )
+    product_data: str | None = Field(
+        default=None,
+        description="产品推荐数据（JSON格式），包含product_name等。None则不插入产品推荐卡",
     )
 
 
@@ -154,6 +159,7 @@ def _fill_template(
     decoration_header: str | None = None,
     decoration_chart: str | None = None,
     decoration_footer: str | None = None,
+    product_info: dict[str, str] | None = None,
 ) -> str:
     """Fill the Jinja2 HTML template with article content."""
     env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)))
@@ -168,6 +174,7 @@ def _fill_template(
         decoration_header=decoration_header,
         decoration_chart=decoration_chart,
         decoration_footer=decoration_footer,
+        product_info=product_info,
     )
 
 
@@ -292,7 +299,18 @@ class InfographicRendererTool(BaseTool):
         conclusion_title = last_section.get("title", "核心结论")
         conclusion_body = last_section.get("body", "")
 
-        # 6. Fill template
+        # 6. Parse product data if provided
+        product_info = None
+        if arguments.product_data:
+            try:
+                product_info = json.loads(arguments.product_data)
+            except json.JSONDecodeError:
+                return ToolResult(
+                    output="product_data JSON解析失败",
+                    is_error=True,
+                )
+
+        # 7. Fill template
         generated_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         decoration_header = None
         decoration_chart = None
@@ -309,6 +327,7 @@ class InfographicRendererTool(BaseTool):
                 decoration_header=decoration_header,
                 decoration_chart=decoration_chart,
                 decoration_footer=decoration_footer,
+                product_info=product_info,
             )
         except Exception as exc:
             return ToolResult(
@@ -354,12 +373,21 @@ class InfographicRendererTool(BaseTool):
             f"尺寸: {actual_width}×{actual_height}px (宽度1080px标准，高度随内容伸缩)",
             f"模板: {arguments.template}",
             f"AI装饰: {decorations_text}",
+        ]
+
+        # Add product info line if present
+        if product_info:
+            output_lines.append(
+                f"产品推荐: {product_info.get('product_name', '')}({product_info.get('product_code', '')})"
+            )
+
+        output_lines.extend([
             "",
             "---",
             f"合规检查: 尺寸匹配 {'✅' if size_result['size_compliance'] else '❌'} | "
             f"图文一致 {'✅' if consistency_result['text_image_match_score'] >= 0.8 else '❌'} | "
             f"内容安全 ✅",
-        ]
+        ])
 
         # 11. Build metadata
         metadata: dict[str, Any] = {
@@ -372,6 +400,7 @@ class InfographicRendererTool(BaseTool):
             "ai_decorations": [],
             "text_image_match_score": consistency_result["text_image_match_score"],
             "generated_at": generated_at,
+            "product_data": arguments.product_data,
         }
 
         return ToolResult(output="\n".join(output_lines), metadata=metadata)

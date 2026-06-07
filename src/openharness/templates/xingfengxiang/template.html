@@ -38,6 +38,21 @@
             {% endif %}
         </div>
         {% endfor %}
+        {% if product_info %}
+        <div class="product-card">
+            <div class="product-card-header">相关产品推荐</div>
+            <div class="product-card-body">
+                <div class="product-name">{{ product_info.product_name }}</div>
+                <div class="product-code">代码: {{ product_info.product_code }}</div>
+                <div class="product-stats">
+                    <span class="product-nav">净值: {{ product_info.nav }}</span>
+                    <span class="product-change">近期: {{ product_info.recent_change }}</span>
+                </div>
+                <div class="product-risk">风险等级: {{ product_info.risk_level }}</div>
+                <div class="product-recommendation">{{ product_info.recommendation }}</div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Bottom: Conclusion + Risk + Footer -->

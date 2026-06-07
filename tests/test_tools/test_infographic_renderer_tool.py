@@ -212,3 +212,56 @@ def test_check_size_compliance_too_short():
     result = _check_size_compliance(1080, 1500)
     assert result["size_compliance"] is False
     assert len(result["issues"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Test: product card rendering
+# ---------------------------------------------------------------------------
+
+FAKE_PRODUCT_JSON = json.dumps({
+    "product_name": "科创芯片ETF",
+    "product_code": "588200",
+    "nav": "1.2345",
+    "recent_change": "+2.3%",
+    "risk_level": "中高风险",
+    "recommendation": "芯片板块利好",
+})
+
+
+@pytest.mark.asyncio
+async def test_renderer_with_product_card(tmp_path: Path, monkeypatch):
+    async def fake_render_html_to_png(*, html: str, output_path: Path, width: int) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        # Verify product card HTML is in the rendered content
+        assert "product-card" in html or "588200" in html
+        return output_path
+
+    monkeypatch.setattr(
+        "openharness.tools.infographic_renderer._render_html_to_png",
+        fake_render_html_to_png,
+    )
+
+    tool = InfographicRendererTool()
+    result = await tool.execute(
+        InfographicRendererInput(
+            article_content=FAKE_ARTICLE,
+            article_title="央行降息0.25个百分点",
+            product_data=FAKE_PRODUCT_JSON,
+            output_dir=str(tmp_path / "infographics"),
+            ai_decorations=False,
+        ),
+        ToolExecutionContext(cwd=tmp_path),
+    )
+
+    assert result.is_error is False
+    assert "588200" in result.output or "科创芯片ETF" in result.output
+
+
+def test_renderer_input_model_with_product_data():
+    input_obj = InfographicRendererInput(
+        article_content=FAKE_ARTICLE,
+        article_title="test",
+        product_data=FAKE_PRODUCT_JSON,
+    )
+    assert input_obj.product_data is not None
