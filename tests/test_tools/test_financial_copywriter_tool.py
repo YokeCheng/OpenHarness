@@ -307,3 +307,17 @@ async def test_copywriter_metadata_structure(tmp_path: Path, monkeypatch):
     assert metadata["model_used"] == "glm-4"
     assert isinstance(metadata["char_count"], int)
     assert isinstance(metadata["key_points"], list)
+
+
+# ---------------------------------------------------------------------------
+# Test: registered in default registry
+# ---------------------------------------------------------------------------
+
+def test_copywriter_registered_in_default_registry():
+    """Verify the tool is registered in the default tool registry."""
+    from openharness.tools import create_default_tool_registry
+
+    registry = create_default_tool_registry()
+    tool = registry.get("financial_copywriter")
+    assert tool is not None
+    assert tool.name == "financial_copywriter"
