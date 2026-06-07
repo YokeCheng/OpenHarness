@@ -321,3 +321,140 @@ def test_copywriter_registered_in_default_registry():
     tool = registry.get("financial_copywriter")
     assert tool is not None
     assert tool.name == "financial_copywriter"
+
+
+# ---------------------------------------------------------------------------
+# Test: knowledge_popularization framework
+# ---------------------------------------------------------------------------
+
+FAKE_KNOWLEDGE_HOTSPOT_DATA = json.dumps([
+    {
+        "title": "什么是科创板",
+        "source": "eastmoney",
+        "category": "policy",
+        "summary": "科创板是专门为科技创新企业设立的独立板块",
+        "url": "https://example.com",
+        "published_at": "2026-06-07T09:00:00",
+    },
+])
+
+
+def test_knowledge_popularization_template_exists():
+    assert "knowledge_popularization" in _FRAMEWORK_TEMPLATES
+
+
+def test_knowledge_popularization_template_structure():
+    template = _FRAMEWORK_TEMPLATES["knowledge_popularization"]
+    assert "概念" in template or "定义" in template
+    assert "要点" in template or "核心" in template
+    assert "数据" in template or "趋势" in template
+    assert "投资" in template or "参考" in template
+
+
+@pytest.mark.asyncio
+async def test_copywriter_knowledge_framework(tmp_path: Path, monkeypatch):
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    fake_article = (
+        "# 【兴风向·知识解读】什么是科创板\n\n"
+        "## 一、概念定义\n科创板是专门为科技创新企业设立的独立板块。\n\n"
+        "## 二、核心要点\n上市门槛更灵活，聚焦硬科技。\n\n"
+        "## 三、数据与趋势\n科创板已有500多家公司上市。\n\n"
+        "## 四、投资参考\n普通投资者可通过基金参与。\n"
+    )
+
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._auto_select_model",
+        lambda: ("fake-key", "https://fake.api/v1", "glm-4"),
+    )
+
+    async def fake_call_llm(*, model: str, system_prompt: str, user_prompt: str, api_key: str, base_url: str) -> str:
+        del system_prompt, user_prompt, api_key, base_url
+        return fake_article
+
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._call_llm",
+        fake_call_llm,
+    )
+
+    tool = FinancialCopywriterTool()
+    result = await tool.execute(
+        FinancialCopywriterInput(
+            hotspot_data=FAKE_KNOWLEDGE_HOTSPOT_DATA,
+            framework="knowledge_popularization",
+        ),
+        context,
+    )
+
+    assert result.is_error is False
+    assert result.metadata["framework"] == "knowledge_popularization"
+
+
+# ---------------------------------------------------------------------------
+# Test: product_data parameter
+# ---------------------------------------------------------------------------
+
+FAKE_PRODUCT_DATA = json.dumps({
+    "product_name": "科创芯片ETF",
+    "product_code": "588200",
+    "nav": "1.2345",
+    "recent_change": "+2.3%",
+    "risk_level": "中高风险",
+    "recommendation": "芯片板块利好，可关注相关ETF",
+})
+
+
+def test_copywriter_input_model_with_product_data():
+    input_obj = FinancialCopywriterInput(
+        hotspot_data=FAKE_HOTSPOT_DATA,
+        product_data=FAKE_PRODUCT_DATA,
+    )
+    assert input_obj.product_data is not None
+
+
+def test_copywriter_input_model_product_data_default():
+    input_obj = FinancialCopywriterInput(hotspot_data=FAKE_HOTSPOT_DATA)
+    assert input_obj.product_data is None
+
+
+@pytest.mark.asyncio
+async def test_copywriter_with_product_data(tmp_path: Path, monkeypatch):
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    fake_article = (
+        "# 【兴风向·财经热点解读】央行降息0.25个百分点\n\n"
+        "## 一、事件概述\n央行宣布降息。\n\n"
+        "## 二、政策解读\n降息背景是经济放缓。\n\n"
+        "## 三、市场影响\n对债券利好。\n\n"
+        "**推荐关注：科创芯片ETF（588200）**\n近期涨幅2.3%，风险等级：中高风险。\n\n"
+        "## 四、投资建议\n建议关注利率敏感型板块。\n"
+    )
+
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._auto_select_model",
+        lambda: ("fake-key", "https://fake.api/v1", "glm-4"),
+    )
+
+    async def fake_call_llm(*, model: str, system_prompt: str, user_prompt: str, api_key: str, base_url: str) -> str:
+        del model, api_key, base_url
+        # Verify product data appears in the user_prompt
+        assert "科创芯片ETF" in user_prompt or "588200" in user_prompt
+        return fake_article
+
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._call_llm",
+        fake_call_llm,
+    )
+
+    tool = FinancialCopywriterTool()
+    result = await tool.execute(
+        FinancialCopywriterInput(
+            hotspot_data=FAKE_HOTSPOT_DATA,
+            product_data=FAKE_PRODUCT_DATA,
+        ),
+        context,
+    )
+
+    assert result.is_error is False
+    assert "588200" in result.output or "科创芯片ETF" in result.output
+    assert result.metadata["product_data"] is not None
