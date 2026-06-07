@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _REQUIRED_WIDTH = 1080
-_REQUIRED_HEIGHT = 1920
+_MIN_HEIGHT = 1920  # minimum height, actual height is dynamic
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "xingfengxiang"
 
 # ---------------------------------------------------------------------------
@@ -112,12 +112,12 @@ def _parse_markdown_sections(article: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def _check_size_compliance(width: int, height: int) -> dict[str, Any]:
-    """Verify PNG dimensions match the required 1080×1920px."""
+    """Verify PNG dimensions: width must be exactly 1080px, height must be >= 1920px."""
     issues: list[str] = []
     if width != _REQUIRED_WIDTH:
         issues.append(f"宽度不符合要求: {width}px (要求 {_REQUIRED_WIDTH}px)")
-    if height != _REQUIRED_HEIGHT:
-        issues.append(f"高度不符合要求: {height}px (要求 {_REQUIRED_HEIGHT}px)")
+    if height < _MIN_HEIGHT:
+        issues.append(f"高度不足: {height}px (最低要求 {_MIN_HEIGHT}px)")
     return {
         "size_compliance": len(issues) == 0,
         "issues": issues,
@@ -180,11 +180,10 @@ async def _render_html_to_png(
     html: str,
     output_path: Path,
     width: int = _REQUIRED_WIDTH,
-    height: int = _REQUIRED_HEIGHT,
 ) -> Path:
     """Render HTML content to a PNG file using Playwright headless browser.
 
-    Uses exact viewport dimensions for 100% size match.
+    Width is fixed at 1080px. Height is dynamic — uses full_page screenshot.
     """
     try:
         from playwright.async_api import async_playwright
@@ -200,7 +199,7 @@ async def _render_html_to_png(
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
         page = await browser.new_page(
-            viewport={"width": width, "height": height},
+            viewport={"width": width, "height": 1920},  # viewport for layout; screenshot uses full_page
             device_scale_factor=1,
         )
         await page.goto(f"file://{html_path}")
@@ -208,8 +207,7 @@ async def _render_html_to_png(
 
         await page.screenshot(
             path=str(output_path),
-            full_page=False,
-            clip={"x": 0, "y": 0, "width": width, "height": height},
+            full_page=True,  # dynamic height based on content
         )
         await browser.close()
 
@@ -324,7 +322,6 @@ class InfographicRendererTool(BaseTool):
                 html=html,
                 output_path=output_path,
                 width=_REQUIRED_WIDTH,
-                height=_REQUIRED_HEIGHT,
             )
         except RuntimeError as exc:
             return ToolResult(
@@ -337,7 +334,7 @@ class InfographicRendererTool(BaseTool):
             img = Image.open(png_path)
             actual_width, actual_height = img.size
         except Exception:
-            actual_width, actual_height = _REQUIRED_WIDTH, _REQUIRED_HEIGHT  # fallback
+            actual_width, actual_height = _REQUIRED_WIDTH, _MIN_HEIGHT  # fallback
 
         size_result = _check_size_compliance(actual_width, actual_height)
 
@@ -354,7 +351,7 @@ class InfographicRendererTool(BaseTool):
             "",
             f"标题: {arguments.article_title}",
             f"文件: {png_path}",
-            f"尺寸: {actual_width}×{actual_height}px (支付宝兴风向标准尺寸)",
+            f"尺寸: {actual_width}×{actual_height}px (宽度1080px标准，高度随内容伸缩)",
             f"模板: {arguments.template}",
             f"AI装饰: {decorations_text}",
             "",

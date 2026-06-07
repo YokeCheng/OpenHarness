@@ -82,7 +82,8 @@ def test_check_size_compliance_invalid_width():
 
 
 def test_check_size_compliance_invalid_height():
-    result = _check_size_compliance(1080, 1919)
+    # Height below minimum (1920) should fail
+    result = _check_size_compliance(1080, 1500)
     assert result["size_compliance"] is False
     assert len(result["issues"]) > 0
 
@@ -107,9 +108,10 @@ def test_check_text_image_consistency_mismatch():
 async def test_renderer_success_with_mocked_playwright(tmp_path: Path, monkeypatch):
     """Test full rendering with mocked Playwright browser."""
 
-    async def fake_render_html_to_png(*, html: str, output_path: Path, width: int, height: int) -> Path:
+    async def fake_render_html_to_png(*, html: str, output_path: Path, width: int) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (width * height))
+        # Dynamic height: write enough bytes for a larger image
+        output_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (width * 3500))
         return output_path
 
     monkeypatch.setattr(
@@ -131,9 +133,8 @@ async def test_renderer_success_with_mocked_playwright(tmp_path: Path, monkeypat
     assert result.is_error is False
     assert "兴风向" in result.output
     assert "1080" in result.output
-    assert "1920" in result.output
     assert result.metadata["width"] == 1080
-    assert result.metadata["height"] == 1920
+    assert result.metadata["height"] >= 1920  # dynamic height
     assert result.metadata["size_compliance"] is True
     assert result.metadata["template_used"] == "xingfengxiang_default"
     assert "image_path" in result.metadata
@@ -157,7 +158,7 @@ async def test_renderer_empty_article(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_renderer_invalid_template(tmp_path: Path, monkeypatch):
-    async def fake_render(*, html: str, output_path: Path, width: int, height: int) -> Path:
+    async def fake_render(*, html: str, output_path: Path, width: int) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         return output_path
@@ -187,3 +188,27 @@ def test_renderer_registered_in_default_registry():
     tool = registry.get("infographic_renderer")
     assert tool is not None
     assert tool.name == "infographic_renderer"
+
+
+# ---------------------------------------------------------------------------
+# Test: dynamic height (width=1080 fixed, height>=1920 dynamic)
+# ---------------------------------------------------------------------------
+
+def test_check_size_compliance_dynamic_valid():
+    """Width must be exactly 1080, height can vary (>=1920)."""
+    result = _check_size_compliance(1080, 3000)
+    assert result["size_compliance"] is True
+    assert result["issues"] == []
+
+
+def test_check_size_compliance_dynamic_invalid_width():
+    result = _check_size_compliance(1079, 3000)
+    assert result["size_compliance"] is False
+    assert len(result["issues"]) > 0
+
+
+def test_check_size_compliance_too_short():
+    """Height must be at least 1920."""
+    result = _check_size_compliance(1080, 1500)
+    assert result["size_compliance"] is False
+    assert len(result["issues"]) > 0
