@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field
+from urllib.parse import quote
 
 from openharness.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from openharness.utils.network_guard import NetworkGuardError, fetch_public_http_response
@@ -226,7 +227,7 @@ async def _fetch_weibo_hot(*, max_items: int) -> list[dict[str, str]]:
             timeout=15.0,
         )
         response.raise_for_status()
-    except (httpx.HTTPError, NetworkGuardError) as exc:
+    except (httpx.HTTPError, NetworkGuardError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"weibo_hot fetch failed: {exc}") from exc
 
     data = json.loads(response.text)
@@ -240,7 +241,7 @@ async def _fetch_weibo_hot(*, max_items: int) -> list[dict[str, str]]:
         if not any(kw in title for kw in _FINANCE_KEYWORDS):
             continue
         category = _classify_title(title)
-        url_val = f"https://s.weibo.com/weibo?q={title}"
+        url_val = f"https://s.weibo.com/weibo?q={quote(title)}"
         items.append({
             "title": title,
             "source": "weibo_hot",

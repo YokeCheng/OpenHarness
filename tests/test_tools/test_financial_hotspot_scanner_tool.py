@@ -11,6 +11,8 @@ from openharness.tools.financial_hotspot_scanner import (
     FinancialHotSpotScannerInput,
     FinancialHotSpotScannerTool,
     _SOURCE_FETCHERS,
+    _classify_title,
+    _parse_html_links,
 )
 
 
@@ -293,3 +295,145 @@ def test_scanner_can_be_registered_in_registry():
     retrieved = registry.get("financial_hotspot_scanner")
     assert retrieved is not None
     assert isinstance(retrieved, FinancialHotSpotScannerTool)
+
+
+# ---------------------------------------------------------------------------
+# Tests for _classify_title
+# ---------------------------------------------------------------------------
+
+def test_classify_policy_keyword():
+    assert _classify_title("央行宣布降息") == "policy"
+
+
+def test_classify_industry_keyword():
+    assert _classify_title("新能源汽车行业蓬勃发展") == "industry"
+
+
+def test_classify_market_keyword():
+    assert _classify_title("A股大涨行情") == "market"
+
+
+def test_classify_company_keyword():
+    assert _classify_title("腾讯公司发布财报") == "company"
+
+
+def test_classify_default():
+    assert _classify_title("今日新闻速递") == "other"
+
+
+def test_classify_empty_string():
+    assert _classify_title("") == "other"
+
+
+def test_classify_multi_category():
+    # Title matching multiple categories returns the first matching one.
+    # _CATEGORY_KEYWORDS iteration order is policy -> industry -> market -> company,
+    # so "policy" wins when both "央行" (policy) and "A股" (market) appear.
+    assert _classify_title("央行政策影响A股市场") == "policy"
+
+
+# ---------------------------------------------------------------------------
+# Tests for _parse_html_links
+# ---------------------------------------------------------------------------
+
+def test_parse_html_links_basic():
+    html_body = '<a href="https://example.com/news1">央行降息</a><a href="https://example.com/news2">A股大涨</a>'
+    items = _parse_html_links(html_body, source_name="eastmoney", max_items=10)
+    assert len(items) == 2
+    assert items[0]["title"] == "央行降息"
+    assert items[0]["url"] == "https://example.com/news1"
+    assert items[1]["title"] == "A股大涨"
+
+
+def test_parse_html_links_relative_url():
+    html_body = '<a href="/a/czqyw202401.html">央行降息</a>'
+    items = _parse_html_links(html_body, source_name="eastmoney", max_items=10)
+    assert len(items) == 1
+    assert items[0]["url"] == "https://finance.eastmoney.com/a/czqyw202401.html"
+
+
+def test_parse_html_links_max_items():
+    html_body = (
+        '<a href="https://example.com/1">央行降息</a>'
+        '<a href="https://example.com/2">A股大涨</a>'
+        '<a href="https://example.com/3">新能源行业</a>'
+    )
+    items = _parse_html_links(html_body, source_name="eastmoney", max_items=2)
+    assert len(items) == 2
+    assert items[0]["title"] == "央行降息"
+    assert items[1]["title"] == "A股大涨"
+
+
+def test_parse_html_links_empty():
+    items = _parse_html_links("", source_name="eastmoney", max_items=10)
+    assert items == []
+
+
+# ---------------------------------------------------------------------------
+# Test: partial source failure
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_scanner_partial_source_failure(tmp_path: Path, monkeypatch):
+    mock_items_eastmoney = [
+        {
+            "title": "央行降息",
+            "source": "eastmoney",
+            "category": "policy",
+            "summary": "央行下调利率",
+            "url": "https://finance.eastmoney.com/news1",
+            "published_at": "",
+        },
+    ]
+
+    async def fake_eastmoney(*, max_items: int):
+        return mock_items_eastmoney[:max_items]
+
+    async def failing_fetcher(*, max_items: int):
+        raise RuntimeError("network error")
+
+    monkeypatch.setitem(_SOURCE_FETCHERS, "eastmoney", fake_eastmoney)
+    monkeypatch.setitem(_SOURCE_FETCHERS, "sina_hot", failing_fetcher)
+
+    tool = FinancialHotSpotScannerTool()
+    result = await tool.execute(
+        FinancialHotSpotScannerInput(),
+        ToolExecutionContext(cwd=tmp_path),
+    )
+
+    assert result.is_error is False
+    assert "央行降息" in result.output
+    assert "部分源抓取失败" in result.output
+    assert result.metadata["total_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Test: empty categories
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_scanner_empty_categories(tmp_path: Path, monkeypatch):
+    mock_items = [
+        {
+            "title": "央行降息",
+            "source": "eastmoney",
+            "category": "policy",
+            "summary": "央行下调利率",
+            "url": "https://finance.eastmoney.com/news1",
+            "published_at": "",
+        },
+    ]
+
+    async def fake_fetch(*, max_items: int):
+        return mock_items[:max_items]
+
+    monkeypatch.setitem(_SOURCE_FETCHERS, "eastmoney", fake_fetch)
+
+    tool = FinancialHotSpotScannerTool()
+    result = await tool.execute(
+        FinancialHotSpotScannerInput(sources=["eastmoney"], categories=[]),
+        ToolExecutionContext(cwd=tmp_path),
+    )
+
+    assert result.is_error is False
+    assert result.metadata["total_count"] == 0
