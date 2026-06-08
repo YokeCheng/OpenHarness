@@ -14,6 +14,7 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 from openharness.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from openharness.tools.image_generation_tool import ImageGenerationTool, ImageGenerationToolInput
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 _REQUIRED_WIDTH = 1080
 _MIN_HEIGHT = 1920  # minimum height, actual height is dynamic
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "xingfengxiang"
+_AUTO_SELECT_IMAGE_MODELS: list[str] = ["wanx-v1", "qwen-vl-plus"]
+_DEFAULT_VISUAL_THEME: dict[str, Any] = {
+    "primary_theme": "金融科技",
+    "color_palette": "金橙暖色系",
+    "background_elements": ["抽象科技纹理", "数据流", "向上箭头"],
+    "chart_styles": ["柱状图", "折线图", "饼图"]
+}
 
 # ---------------------------------------------------------------------------
 # Input model
@@ -53,6 +61,10 @@ class InfographicRendererInput(BaseModel):
     product_data: str | None = Field(
         default=None,
         description="产品推荐数据（JSON格式），包含product_name等。None则不插入产品推荐卡",
+    )
+    visual_theme: str | None = Field(
+        default=None,
+        description="视觉主题建议（JSON格式），来自 FinancialCopywriterTool 的 metadata.visual_theme。None则使用默认主题。",
     )
 
 
@@ -160,6 +172,7 @@ def _fill_template(
     decoration_chart: str | None = None,
     decoration_footer: str | None = None,
     product_info: dict[str, str] | None = None,
+    section_backgrounds: list[str] | None = None,
 ) -> str:
     """Fill the Jinja2 HTML template with article content."""
     env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)))
@@ -175,7 +188,82 @@ def _fill_template(
         decoration_chart=decoration_chart,
         decoration_footer=decoration_footer,
         product_info=product_info,
+        section_backgrounds=section_backgrounds or [],
     )
+
+
+def _build_dynamic_image_prompt(
+    content_theme: str,
+    visual_suggestions: dict[str, Any],
+    element_type: str
+) -> str:
+    """Dynamically build AI image generation prompt based on visual suggestions."""
+    background_elements = visual_suggestions.get("background_elements", [])
+    color_palette = visual_suggestions.get("color_palette", "金橙暖色系")
+
+    if element_type == "s0_background":
+        elements_str = ", ".join(background_elements) if background_elements else "科技装饰元素"
+        return (
+            f"高清{color_palette}财经信息长图头部背景，"
+            f"主题：{content_theme}，包含元素：{elements_str}，"
+            "无文字，纯装饰性，适合1080px宽度展示"
+        )
+
+    elif element_type == "section_header":
+        # Use first 2 elements for section headers to avoid clutter
+        elements_for_header = background_elements[:2] if background_elements else ["科技装饰元素"]
+        elements_str = ", ".join(elements_for_header)
+        return (
+            f"{content_theme}主题装饰图案，{color_palette}配色，"
+            f"简洁科技风格，包含{elements_str}元素，"
+            "适合作为二级标题背景，横向重复图案"
+        )
+
+    elif element_type == "data_chart":
+        chart_styles = visual_suggestions.get("chart_styles", ["柱状图"])
+        chart_str = ", ".join(chart_styles) if chart_styles else "数据图表"
+        return (
+            f"专业的{chart_str}，{color_palette}配色，"
+            f"清晰易读，适合财经信息展示，无文字标签"
+        )
+
+    else:
+        # Default fallback
+        return f"{content_theme}主题{color_palette}装饰图案，简洁科技风格"
+
+
+async def _generate_ai_image(
+    prompt: str,
+    size: str,
+    context: ToolExecutionContext,
+    model: str | None = None
+) -> str | None:
+    """Generate AI image using ImageGenerationTool."""
+    try:
+        image_tool = ImageGenerationTool()
+
+        # Use specified model or auto-select
+        if model is None:
+            model = _AUTO_SELECT_IMAGE_MODELS[0]  # Start with wanx-v1
+
+        image_input = ImageGenerationToolInput(
+            prompt=prompt,
+            model=model,
+            size=size,
+            output_dir=str(context.cwd / "data" / "ai_decorations")
+        )
+
+        result = await image_tool.execute(image_input, context)
+
+        if result.is_error:
+            logger.warning(f"AI image generation failed: {result.output}")
+            return None
+
+        return result.output.strip()  # Return the image path
+
+    except Exception as e:
+        logger.warning(f"AI image generation exception: {e}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +387,14 @@ class InfographicRendererTool(BaseTool):
         conclusion_title = last_section.get("title", "核心结论")
         conclusion_body = last_section.get("body", "")
 
+        # Parse visual theme if provided
+        visual_theme = _DEFAULT_VISUAL_THEME.copy()
+        if arguments.visual_theme:
+            try:
+                visual_theme.update(json.loads(arguments.visual_theme))
+            except json.JSONDecodeError:
+                logger.warning("visual_theme JSON解析失败，使用默认主题")
+
         # 6. Parse product data if provided
         product_info = None
         if arguments.product_data:
@@ -310,12 +406,36 @@ class InfographicRendererTool(BaseTool):
                     is_error=True,
                 )
 
-        # 7. Fill template
-        generated_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        # 7. Generate AI decorations if enabled
         decoration_header = None
         decoration_chart = None
         decoration_footer = None
-        # AI decorations disabled in this POC — placeholder for future integration
+        section_backgrounds = []
+
+        if arguments.ai_decorations:
+            # Generate S0 header background
+            s0_prompt = _build_dynamic_image_prompt(
+                content_theme=visual_theme["primary_theme"],
+                visual_suggestions=visual_theme,
+                element_type="s0_background"
+            )
+            decoration_header = await _generate_ai_image(s0_prompt, "1080x600", context)
+
+            # Generate section header backgrounds for each section
+            for i, section in enumerate(sections):
+                section_prompt = _build_dynamic_image_prompt(
+                    content_theme=visual_theme["primary_theme"],
+                    visual_suggestions=visual_theme,
+                    element_type="section_header"
+                )
+                section_bg = await _generate_ai_image(section_prompt, "1080x80", context)
+                section_backgrounds.append(section_bg if section_bg else "")
+        else:
+            # No AI decorations
+            section_backgrounds = [""] * len(sections)
+
+        # 8. Fill template
+        generated_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
         try:
             html = _fill_template(
@@ -328,6 +448,7 @@ class InfographicRendererTool(BaseTool):
                 decoration_chart=decoration_chart,
                 decoration_footer=decoration_footer,
                 product_info=product_info,
+                section_backgrounds=section_backgrounds,
             )
         except Exception as exc:
             return ToolResult(
@@ -363,7 +484,14 @@ class InfographicRendererTool(BaseTool):
 
         # 10. Build output text
         generated_at = datetime.now(timezone.utc).isoformat()
-        decorations_text = "已生成0个装饰元素" if not arguments.ai_decorations else "AI装饰功能待集成"
+        # Count generated decorations
+        decoration_count = 0
+        if decoration_header:
+            decoration_count += 1
+        if any(bg for bg in section_backgrounds):
+            decoration_count += len([bg for bg in section_backgrounds if bg])
+
+        decorations_text = f"已生成{decoration_count}个AI装饰元素" if arguments.ai_decorations else "AI装饰功能已禁用"
 
         output_lines = [
             "兴风向信息长图已生成",

@@ -14,6 +14,7 @@ from openharness.tools.infographic_renderer import (
     _parse_markdown_sections,
     _check_size_compliance,
     _check_text_image_consistency,
+    _build_dynamic_image_prompt,
 )
 
 
@@ -265,3 +266,88 @@ def test_renderer_input_model_with_product_data():
         product_data=FAKE_PRODUCT_JSON,
     )
     assert input_obj.product_data is not None
+
+
+def test_build_dynamic_image_prompt_s0_background():
+    visual_theme = {
+        "primary_theme": "半导体芯片",
+        "color_palette": "金橙科技色",
+        "background_elements": ["集成电路板", "CPU芯片", "向上增长箭头"],
+        "chart_styles": ["配比趋势图", "市场规模柱状图"]
+    }
+
+    prompt = _build_dynamic_image_prompt(
+        content_theme="半导体芯片",
+        visual_suggestions=visual_theme,
+        element_type="s0_background"
+    )
+
+    assert "金橙科技色" in prompt
+    assert "集成电路板" in prompt
+    assert "1080px" in prompt
+
+
+def test_build_dynamic_image_prompt_section_header():
+    visual_theme = {
+        "primary_theme": "商业航天",
+        "color_palette": "蓝色科技色",
+        "background_elements": ["卫星", "火箭", "轨道"],
+        "chart_styles": ["趋势图", "柱状图"]
+    }
+
+    prompt = _build_dynamic_image_prompt(
+        content_theme="商业航天",
+        visual_suggestions=visual_theme,
+        element_type="section_header"
+    )
+
+    assert "商业航天" in prompt
+    assert "蓝色科技色" in prompt
+    assert "卫星" in prompt
+
+
+FAKE_VISUAL_THEME = {
+    "primary_theme": "半导体芯片",
+    "color_palette": "金橙科技色",
+    "background_elements": ["集成电路板", "CPU芯片"],
+    "chart_styles": ["配比趋势图"]
+}
+
+
+@pytest.mark.asyncio
+async def test_renderer_with_ai_decorations(tmp_path: Path, monkeypatch):
+    async def fake_render_html_to_png(*, html: str, output_path: Path, width: int) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        return output_path
+
+    async def fake_generate_ai_image(prompt: str, size: str, context) -> str:
+        # Return fake image path
+        return str(tmp_path / "fake_image.png")
+
+    monkeypatch.setattr(
+        "openharness.tools.infographic_renderer._render_html_to_png",
+        fake_render_html_to_png,
+    )
+    monkeypatch.setattr(
+        "openharness.tools.infographic_renderer._generate_ai_image",
+        fake_generate_ai_image,
+    )
+
+    # Create fake image file
+    fake_img_path = tmp_path / "fake_image.png"
+    fake_img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+
+    tool = InfographicRendererTool()
+    result = await tool.execute(
+        InfographicRendererInput(
+            article_content=FAKE_ARTICLE,
+            article_title="60只芯片股历史新高",
+            ai_decorations=True,
+            visual_theme=json.dumps(FAKE_VISUAL_THEME),
+        ),
+        ToolExecutionContext(cwd=tmp_path),
+    )
+
+    assert result.is_error is False
+    assert "AI装饰: 已生成" in result.output
