@@ -45,7 +45,7 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.10.0",
 ]
-infographic = ["playwright>=1.40.0"]
+infographic = ["playwright>=1.40.0", "pillow>=10.0.0"]
 
 [project.scripts]
 openharness = "openharness.cli:app"
