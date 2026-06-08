@@ -11,10 +11,8 @@
     <div class="left-bar"></div>
 
     <!-- Top: Brand + Title + Date -->
-    <div class="header">
-        {% if decoration_header %}
-        <img class="decoration-header-illustration" src="{{ decoration_header }}" alt="插图">
-        {% endif %}
+    <div class="header"
+         {% if decoration_header %}style="background-image: url('{{ decoration_header }}'); background-size: cover; background-position: center;"{% endif %}>
         <div class="brand-tag">兴风向</div>
         <h1 class="article-title">{{ article_title }}</h1>
         <div class="article-date">{{ generated_date }}</div>
@@ -24,24 +22,32 @@
     <!-- Middle: Content sections with alternating backgrounds -->
     <div class="content">
         {% for section in sections %}
-        {% if loop.index is odd %}
-        <div class="section-white">
-        {% else %}
-        <div class="section-gold">
-        {% endif %}
-            <h2 class="section-title">{{ section.title }}</h2>
-            <div class="section-body">{{ section.body }}</div>
-            {% if section.data_cards %}
-            <div>
-                {% for card in section.data_cards %}
-                <span class="product-nav">{{ card }}</span>
-                {% endfor %}
+        <div class="section-container">
+            {% if loop.index is odd %}
+            <div class="section-white">
+            {% else %}
+            <div class="section-gold">
+            {% endif %}
+                {% if section_backgrounds and section_backgrounds[loop.index0] %}
+                <div class="section-header" style="background-image: url('{{ section_backgrounds[loop.index0] }}'); background-size: repeat-x; background-position: left;">
+                    <h2 class="section-title">{{ section.title }}</h2>
+                </div>
+                {% else %}
+                <h2 class="section-title">{{ section.title }}</h2>
+                {% endif %}
+                <div class="section-body">{{ section.body }}</div>
+                {% if section.data_cards %}
+                <div>
+                    {% for card in section.data_cards %}
+                    <span class="product-nav">{{ card }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
+            {% if not loop.last %}
+            <div class="section-divider"></div>
             {% endif %}
         </div>
-        {% if not loop.last %}
-        <div class="section-divider"></div>
-        {% endif %}
         {% endfor %}
 
         <!-- Product card (optional, inserted between content and conclusion) -->

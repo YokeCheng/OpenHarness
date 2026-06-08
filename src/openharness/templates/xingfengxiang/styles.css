@@ -240,6 +240,25 @@ body {
     line-height: 1.4;
 }
 
+/* ── Section Containers ── */
+.section-container {
+    margin-bottom: 0;
+}
+
+/* ── Section Headers with Dynamic Backgrounds ── */
+.section-header {
+    padding: 20px 40px 20px 60px; /* Extra left padding for decoration bar */
+    margin: -40px -40px 20px -40px; /* Negative margins to extend to container edges */
+    background-color: rgba(255, 255, 255, 0.9); /* Semi-transparent white overlay */
+    border-radius: 8px 8px 0 0;
+}
+
+.section-header .section-title {
+    margin: 0;
+    padding: 0;
+    border-left: none; /* Remove original left border since we have background */
+}
+
 /* ── Section Divider Lines ── */
 .section-divider {
     height: 2px;
