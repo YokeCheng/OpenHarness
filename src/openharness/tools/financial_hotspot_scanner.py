@@ -63,6 +63,10 @@ class FinancialHotSpotScannerInput(BaseModel):
         le=50,
         description="每个源最多抓取的热点数量",
     )
+    topic: str | None = Field(
+        default=None,
+        description="定向搜索主题关键词；None则返回全量热点",
+    )
 
 
 class FinancialHotSpotScannerTool(BaseTool):
@@ -121,6 +125,15 @@ class FinancialHotSpotScannerTool(BaseTool):
             item for item in deduped
             if item.get("category", "other") in valid_categories
         ]
+
+        # Filter by topic keyword (if specified)
+        if arguments.topic:
+            topic_kw = arguments.topic.strip().lower()
+            filtered = [
+                h for h in filtered
+                if topic_kw in h.get("title", "").lower()
+                or topic_kw in h.get("summary", "").lower()
+            ]
 
         # Format output text with Chinese labels
         source_labels: dict[str, str] = {

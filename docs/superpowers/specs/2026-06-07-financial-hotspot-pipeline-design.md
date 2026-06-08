@@ -31,22 +31,24 @@
 
 ```
 子项目1: financial-hotspot-scanner（热点抓取 Tool）
-  → 输出: 结构化热点数据 JSON + 格式化文本
+  → 输入: topic 关键词（如"降息"、"创新药"）
+  → 输出: 结构化热点数据 JSON + 格式化文本（按 topic 过滤）
   → 无外部依赖（独立可用）
 
 子项目2: financial-copywriter（AI文案生成 Tool）
-  → 输入: 子项目1 的 metadata.hotspots
-  → 输出: 财经解读文案 markdown + 合规检查结果
+  → 输入: 子项目1 的 metadata.hotspots + framework（xingfengxiang/knowledge_popularization）+ product_data（可选）
+  → 输出: 一篇聚焦文案 markdown + 合规检查结果
   → 依赖: 子项目1 + 国产大模型 Provider
 
 子项目3: infographic-renderer（信息长图渲染 Tool）
-  → 输入: 子项目2 的文案 markdown
-  → 输出: 兴风向信息长图 PNG（1080×1920px）
+  → 输入: 子项目2 的文案 markdown + product_data（可选）
+  → 输出: 兴风向信息长图 PNG（1080px宽，高度动态伸缩≥1920px）
   → 依赖: 子项目2 + HTML模板 + 无头浏览器
 
 子项目4: financial-hotspot-pipeline（编排 Skill + cron）
-  → 编排: 1→2→3 的串联执行
-  → 触发: cron 定时（每天9:00）或手动 /financial-hotspot-pipeline
+  → 编排: 0(确认主题)→1(搜索热点)→2(生成文案)→3(生成长图) 的串联执行
+  → 支持三种内容类型: knowledge_popularization / xingfengxiang / xingfengxiang+产品
+  → 触发: cron 定时（每天9:00）或手动 /financial_hotspot_pipeline
   → 依赖: 1, 2, 3 全部完成
 ```
 
@@ -99,6 +101,10 @@ class FinancialHotSpotScannerInput(BaseModel):
     max_items: int = Field(
         default=10, ge=1, le=50,
         description="每个源最多抓取的热点数量"
+    )
+    topic: str | None = Field(
+        default=None,
+        description="定向搜索主题关键词；None则返回全量热点"
     )
 ```
 
@@ -180,7 +186,7 @@ class FinancialCopywriterInput(BaseModel):
     )
     framework: str = Field(
         default="xingfengxiang",
-        description="文案框架：xingfengxiang(兴风向解读框架), standard(标准财经分析)"
+        description="文案框架：xingfengxiang(兴风向解读), standard(标准分析), knowledge_popularization(知识普及)"
     )
     style: str = Field(
         default="professional_accessible",
@@ -189,6 +195,10 @@ class FinancialCopywriterInput(BaseModel):
     model: str | None = Field(
         default=None,
         description="指定大模型（如 glm-4, qwen-max, deepseek-v3）；None则自动选择"
+    )
+    product_data: str | None = Field(
+        default=None,
+        description="产品推荐数据（JSON格式），包含product_name, product_code, nav, recent_change, risk_level, recommendation。None则不插入产品推荐"
     )
 ```
 
@@ -240,9 +250,11 @@ ToolResult.metadata：
 1. 解析 hotspot_data JSON → 提取热点信息
 2. 依据 framework 选择 prompt template：
    - `xingfengxiang`: 兴风向解读框架（事件概述→政策解读→市场影响→投资建议）
-   - `standard`: 标准财经分析框架
+   - `standard`: 标准财经分析框架（背景→分析→前景）
+   - `knowledge_popularization`: 知识普及框架（概念定义→核心要点→数据与趋势→投资参考）
 3. 通过 OpenHarness 已有的 `AuthManager` + provider profile 获取国产模型 API key
-4. 使用 `openharness.api.client` 发起大模型调用请求
+4. 如果 product_data 有值，解析 JSON 并将产品推荐信息注入 user_prompt
+5. 使用 `openharness.api.client` 发起大模型调用请求
 5. 对输出做合规检查：
    - 敏感词过滤（预置金融合规敏感词库）
    - 事实性校验（与热点原始数据交叉比对）
@@ -291,6 +303,10 @@ class InfographicRendererInput(BaseModel):
         default=True,
         description="是否使用AI生成装饰元素（图标、插图等）"
     )
+    product_data: str | None = Field(
+        default=None,
+        description="产品推荐数据（JSON格式），包含product_name等。None则不插入产品推荐卡"
+    )
 ```
 
 ### 6.3 Output 格式
@@ -300,7 +316,7 @@ class InfographicRendererInput(BaseModel):
 
 标题: 央行降息0.25个百分点
 文件: /data/infographics/2026-06-07_xingfengxiang_policy.png
-尺寸: 1080×1920px (支付宝兴风向标准尺寸)
+尺寸: 1080×3500px (宽度1080px标准，高度随内容伸缩)
 模板: xingfengxiang_default
 AI装饰: 已生成3个装饰元素
 
@@ -314,7 +330,7 @@ ToolResult.metadata：
 {
     "image_path": "/data/infographics/2026-06-07_xingfengxiang_policy.png",
     "width": 1080,
-    "height": 1920,
+    "height": 3500,
     "size_compliance": True,
     "template_used": "xingfengxiang_default",
     "key_points_extracted": ["降息背景", "市场影响", "投资建议"],
@@ -333,9 +349,9 @@ ToolResult.metadata：
    - 通过 OpenHarness 已有的 `ImageGenerationTool` 或国产图像 API
 4. **填充模板**: 将文案内容 + 装饰元素填充到 HTML 模板
 5. **HTML → PNG 转换**: 使用 Playwright 无头浏览器将 HTML 截图为 PNG
-   - 设定精确 viewport: 1080×1920px
-   - 这是保证尺寸 100% 匹配的关键步骤
-6. **尺寸合规检查**: 验证生成的 PNG 宽度=1080px、高度=1920px
+   - 设定 viewport width=1080px, height 动态伸缩（使用 full_page=True 截图）
+   - 这是保证宽度 100% 匹配的关键步骤
+6. **尺寸合规检查**: 验证生成的 PNG 宽度=1080px、高度≥1920px（动态高度）
 7. **图文一致性检查**: 验证长图中包含文案的所有关键要点
 8. 返回图片路径 + 合规检查结果
 
@@ -347,12 +363,14 @@ ToolResult.metadata：
 
 ### 6.6 兴风向版式规范（模板设计）
 
-- **标准尺寸**: 1080px × 1920px（支付宝渠道要求）
+- **标准尺寸**: 1080px宽度，高度动态伸缩（≥1920px）
 - **版式结构**:
   - 顶部: 标题区（品牌标识 + 标题 + 日期）
-  - 中部: 内容区（分段标题 + 正文 + 数据卡片）
-  - 底部: 结论区（核心结论 + 风险提示 + 品牌落款）
-- **配色**: 兴风向品牌色系（蓝色主色调 + 金色点缀）
+  - 中部: 内容区（白色/淡金色交替背景，分段标题 + 正文 + 数据卡片）
+  - 产品推荐区（可选）：产品推荐卡（金色边框，产品名称/代码/净值/涨跌/风险）
+  - 底部: 结论区（金色背景，核心结论 + 风险提示 + 品牌落款）
+- **配色**: 金橙暖色系（主色调：#EA580C/#FBB03B，背景：#FFF8E7/#FFFFFF交替）
+- **左侧装饰条**: 12px金橙渐变装饰条贯穿全文
 - **字体**: 系统字体 fallback（确保跨平台渲染一致）
 
 ### 6.7 属性
@@ -366,7 +384,12 @@ ToolResult.metadata：
 
 ### 7.1 用途
 
-编排全流程：热点抓取 → 文案生成 → 长图渲染 → 保存记录
+编排全流程：确认主题 → 搜索热点 → 文案生成 → 长图渲染 → 保存记录
+
+支持三种内容类型：
+- knowledge_popularization — 知识普及型（"什么是XX"）
+- xingfengxiang — 纯热点分析型（"央行降息意味着什么"）
+- xingfengxiang + 产品数据 — 热点+产品推荐型
 
 ### 7.2 Skill 文件
 
@@ -383,18 +406,31 @@ ToolResult.metadata：
 ```markdown
 ---
 name: financial-hotspot-pipeline
-description: 执行财经热点抓取→文案生成→兴风向长图的全流程自动化
+description: 给定主题→搜索热点→生成文案→渲染长图的全流程自动化
 user-invocable: true
 ---
 
 # 财经热点生图流程
 
-当收到"热点生图"、"财经热点生图"、"/financial-hotspot-pipeline"指令时，按以下步骤操作：
+当收到"热点生图"、"财经热点生图"、"/financial_hotspot_pipeline"指令时，按以下步骤操作。
 
-## 步骤1：抓取热点
+**必须先确认主题和内容类型**：
+
+## 步骤0：确认主题和类型
+
+询问用户（或从输入推断）：
+- **主题**：什么事件/知识点？（如"央行降息"、"创新药"、"科创板"）
+- **内容类型**：
+  - `knowledge_popularization` — 知识普及型（"什么是XX"、"XX怎么看"）
+  - `xingfengxiang` — 纯热点分析型（"央行降息意味着什么"）
+  - `xingfengxiang` + 产品数据 — 热点+产品推荐型（兴业证券业务场景）
+- **是否带产品推荐**：如果类型是热点+产品，需要提供产品数据（JSON格式）
+
+## 步骤1：搜索热点
 
 调用 FinancialHotSpotScannerTool，参数：
 - sources: ["eastmoney", "sina_hot", "weibo_hot"]
+- topic: 用户指定的主题关键词（如"降息"、"创新药"、"科创板"）
 - categories: ["policy", "industry", "market", "company"]
 - max_items: 10
 
@@ -402,94 +438,78 @@ user-invocable: true
 
 **错误处理**：
 - 所有源抓取失败 → Pipeline 终止，返回错误信息
-- 部分源失败 → 继续执行，在最终 pipeline_log.json 中记录失败的源
+- 搜索结果为空 → 提示用户换主题或改关键词
 
-## 步骤2：生成文案（按 category 分组）
+## 步骤2：生成文案
 
-将步骤1的 metadata["hotspots"] 按 category 字段分组：
-- policy 类 → 一篇"政策解读"
-- industry 类 → 一篇"行业分析"
-- market 类 → 一篇"行情分析"
-- company 类 → 一篇"公司动态"
-
-对每个分组，调用 FinancialCopywriterTool：
-- hotspot_data: 该分组 hotspots 的 JSON 序列化字符串（json.dumps(metadata["hotspots"] 过滤该 category））
-- framework: "xingfengxiang"
+调用 FinancialCopywriterTool：
+- hotspot_data: ToolResult.metadata["hotspots"] 的 JSON 序列化字符串
+- framework: 根据内容类型选择：
+  - 知识普及 → "knowledge_popularization"
+  - 热点分析 → "xingfengxiang"
 - style: "professional_accessible"
 - model: null（自动选择）
+- product_data: 如果带产品推荐，传入产品 JSON；否则不传
 
 **合规检查**：
-- 如果 ToolResult.metadata["compliance_check"]["passed"] == False：
-  → 保存文案为 non_compliant（文件名后缀 _nc.md），跳过步骤3渲染，Pipeline 继续
-- 如果 passed == True：继续步骤3
+- ToolResult.metadata["compliance_check"]["passed"] == False → 保存为 _nc.md，提示用户人工审核
+- passed == True → 继续步骤3
 
 **LLM 调用失败处理**：
-- 调用失败时，按后备模型列表重试一次：glm-4 → qwen-max → deepseek-v3
-- 仍失败 → 跳过该分组，记录失败原因，Pipeline 继续处理其他分组
+- 换模型重试一次（glm-4 → qwen-max → deepseek-v3）
+- 仍失败 → Pipeline 终止
 
 ## 步骤3：生成长图
 
-对每篇合规通过的文案，调用 InfographicRendererTool：
-- article_content: 来自步骤2 ToolResult.metadata["article_markdown"]
-- article_title: 该分组的代表性热点标题
+调用 InfographicRendererTool：
+- article_content: 步骤2 ToolResult.metadata["article_markdown"]
+- article_title: 主题标题
 - template: "xingfengxiang_default"
 - ai_decorations: true
+- product_data: 如果带产品推荐，传入产品 JSON；否则不传
 - output_dir: "{cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/infographics"
 
-**尺寸合规检查**（一票否决项）：
-- 如果 ToolResult.metadata["size_compliance"] == False：
-  → 相同参数重新调用 InfographicRendererTool，最多重试 3 次
-  → 3 次仍不合规 → 标记为 size_failed，记录原因，Pipeline 继续
+**尺寸合规检查**（宽度必须1080px，高度≥1920px）：
+- 不合规 → 相同参数重试最多3次
+- 3次仍不合规 → 标记为 size_failed
 
-## 步骤4：保存与记录
+## 步骤4：保存记录
 
-将所有结果保存到 {cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/ 目录：
-- hotspots.json — 原始热点数据（步骤1完整 metadata.hotspots）
-- articles/{category}.md — 每篇合规文案 markdown
-- articles/{category}_nc.md — 非合规文案（标记 nc）
-- infographics/{category}.png — 每张合规长图 PNG
+保存到 {cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/：
+- hotspots.json — 步骤1原始数据
+- article.md — 步骤2文案
+- infographic.png — 步骤3长图（已自动保存）
 - pipeline_log.json — 全流程日志
 
-pipeline_log.json 格式：
+pipeline_log.json：
 {
-    "run_time": "2026-06-07T09:00:00",
-    "trigger": "cron" | "manual",
-    "hotspots_scanned": 15,
-    "articles_generated": 4,
-    "articles_compliant": 3,
-    "non_compliant": ["company"],
-    "infographics_generated": 3,
-    "infographics_size_compliant": 3,
-    "size_failed": [],
-    "failed_items": [
-        {"category": "company", "reason": "LLM调用失败（glm-4 + qwen-max均失败）",
-         "models_tried": ["glm-4", "qwen-max"]}
-    ],
-    "total_duration_seconds": 180,
+    "run_time": "当前UTC时间",
+    "trigger": "manual",
+    "topic": "用户指定的主题",
+    "content_type": "knowledge_popularization | xingfengxiang | xingfengxiang_with_product",
+    "hotspots_scanned": 5,
+    "compliance_passed": true,
+    "image_size": "1080x3500",
+    "product_name": "科创芯片ETF（如果有产品）",
+    "failed_items": [],
+    "total_duration_seconds": 120,
     "model_used": "glm-4"
 }
 
 ## 触发方式
 
-- 斜杠命令：/financial-hotspot-pipeline
-- 关键词："热点生图"、"财经热点生图"、"执行热点生图流程"
+- 斜杠命令：/financial_hotspot_pipeline
+- 关键词："热点生图"、"财经热点生图"
 
 ## Cron 定时配置（可选）
 
-如需每天自动执行，可使用 CronCreate 工具配置：
-- cron: "0 9 * * *"
-- prompt: "/financial-hotspot-pipeline"
-- durable: true
-
-或通过命令行：oh cron start
+CronCreate: cron="0 9 * * *", prompt="/financial_hotspot_pipeline", durable=true
 
 ## 注意事项
 
-- 尺寸合规是强制要求（一票否决项），不合规的图片必须重新渲染
-- 所有中间产物必须保存，不可丢弃（包括 non_compliant 文案）
-- 记录端到端耗时，用于效率对比
-- 合规未通过的文案仍然保存（标记 _nc），供人工审核
-- 生成成功率需 ≥ 98%，失败的条目记录详细原因
+- 长图宽度必须1080px（一票否决），高度动态伸缩
+- 所有中间产物必须保存
+- 合规未通过的文案仍然保存，供人工审核
 ```
 
 ### 7.4 触发机制
@@ -518,10 +538,12 @@ pipeline_log.json 格式：
 |--------|------|------|
 | Skill 位置 | bundled/content/ | 随平台发布，自动加载，无需手动安装 |
 | 步骤风格 | 指令式 | 结果可控、可复现，明确 Tool 名称和参数 |
-| 文案生成方式 | 按 category 分组 | 兼顾深度和效率，文章聚焦且有清晰主题 |
-| 合规失败处理 | 保存 non_compliant，跳过渲染 | 简单可靠，问题留给人工审核 |
-| LLM 失败处理 | 换模型重试一次再跳过 | 增加成功概率，后备列表：glm-4→qwen-max→deepseek-v3 |
+| Pipeline 模式 | 主题驱动，一主题一图 | 聚焦单一话题，产出更精准 |
+| 内容类型 | 三种: knowledge_popularization / xingfengxiang / xingfengxiang+产品 | 适配兴业证券不同业务场景 |
+| 合规失败处理 | 保存 _nc.md，跳过渲染 | 简单可靠，问题留给人工审核 |
+| LLM 失败处理 | 换模型重试一次再终止 | 增加成功概率，后备列表：glm-4→qwen-max→deepseek-v3 |
 | 尺寸不合规重试 | 相同参数重试 3 次 | 简单直接，符合设计文档的一票否决要求 |
+| 长图尺寸 | 1080px宽，高度动态伸缩(≥1920px) | 适应不同内容长度，避免固定高度截断 |
 | 触发范围 | 窄触发（"热点生图"等特定词） | 避免误触发 |
 | Cron 配置 | 说明文档式 | 用户按需设置，不自动创建 |
 
@@ -530,27 +552,29 @@ pipeline_log.json 格式：
 ## 8. 数据流总览
 
 ```
-Cron 定时 (每天9:00) / 手动 /financial-hotspot-pipeline
+Cron 定时 (每天9:00) / 手动 /financial_hotspot_pipeline
          ↓
 Agent 读取 Skill: financial-hotspot-pipeline
          ↓
+Step 0: 确认主题和内容类型 (topic, content_type, product_data)
+         ↓
 Step 1: FinancialHotSpotScannerTool
-  输入: sources=["eastmoney","sina_hot","weibo_hot"], categories, max_items
-  输出: 格式化文本 + metadata.hotspots (JSON)
+  输入: sources=["eastmoney","sina_hot","weibo_hot"], topic=用户主题, categories, max_items
+  输出: 格式化文本 + metadata.hotspots (JSON，按topic过滤)
          ↓
-Step 2: FinancialCopywriterTool (per category group: policy/industry/market/company)
-  输入: 该分组 hotspots JSON + framework + style + model
-  输出: 文案 markdown + compliance_check
-  ↓ 不合规 → 保存 _nc.md，跳过渲染
-  ↓ LLM失败 → 换模型重试一次 → 仍失败则跳过该分组
+Step 2: FinancialCopywriterTool
+  输入: hotspots JSON + framework(根据content_type) + product_data(可选)
+  输出: 一篇聚焦文案 markdown + compliance_check
+  ↓ 不合规 → 保存 _nc.md，提示用户人工审核
+  ↓ LLM失败 → 换模型重试一次 → 仍失败则终止Pipeline
          ↓
-Step 3: InfographicRendererTool (per compliant article)
-  输入: article markdown + title + template + ai_decorations + output_dir
-  输出: PNG 图片 (1080×1920px) + size_compliance
+Step 3: InfographicRendererTool
+  输入: article markdown + title + template + product_data(可选) + output_dir
+  输出: PNG 图片 (1080px宽，高度动态) + size_compliance
   ↓ 尺寸不合规 → 相同参数重试（最多3次）→ 仍不合规标记 size_failed
          ↓
 Step 4: 保存全流程结果
-  hotspots.json | articles/*.md | infographics/*.png | pipeline_log.json
+  hotspots.json | article.md | infographic.png | pipeline_log.json
 ```
 
 ---

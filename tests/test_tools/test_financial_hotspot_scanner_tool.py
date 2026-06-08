@@ -436,3 +436,72 @@ async def test_scanner_empty_categories(tmp_path: Path, monkeypatch):
 
     assert result.is_error is False
     assert result.metadata["total_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: topic parameter filtering
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_scanner_topic_filter(tmp_path: Path, monkeypatch):
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    fake_hotspots = [
+        {
+            "title": "央行宣布降息0.25个百分点",
+            "source": "eastmoney",
+            "category": "policy",
+            "summary": "降息25个基点",
+            "url": "https://example.com/1",
+            "published_at": "2026-06-07T09:30:00",
+        },
+        {
+            "title": "新能源汽车销量创新高",
+            "source": "eastmoney",
+            "category": "industry",
+            "summary": "销量突破100万",
+            "url": "https://example.com/2",
+            "published_at": "2026-06-07T10:15:00",
+        },
+        {
+            "title": "科创板芯片企业集体上涨",
+            "source": "sina_hot",
+            "category": "market",
+            "summary": "芯片板块领涨",
+            "url": "https://example.com/3",
+            "published_at": "2026-06-07T11:00:00",
+        },
+    ]
+
+    async def fake_fetch_eastmoney(*, max_items: int):
+        return fake_hotspots[:max_items]
+
+    async def fake_fetch_sina_hot(*, max_items: int):
+        return [fake_hotspots[2]]
+
+    async def fake_fetch_weibo_hot(*, max_items: int):
+        return []
+
+    monkeypatch.setitem(_SOURCE_FETCHERS, "eastmoney", fake_fetch_eastmoney)
+    monkeypatch.setitem(_SOURCE_FETCHERS, "sina_hot", fake_fetch_sina_hot)
+    monkeypatch.setitem(_SOURCE_FETCHERS, "weibo_hot", fake_fetch_weibo_hot)
+
+    # Filter by topic "降息" — should only return hotspots containing that keyword
+    result = await FinancialHotSpotScannerTool().execute(
+        FinancialHotSpotScannerInput(sources=["eastmoney", "sina_hot"], topic="降息", max_items=10),
+        context,
+    )
+
+    assert result.is_error is False
+    assert len(result.metadata["hotspots"]) == 1
+    assert "降息" in result.metadata["hotspots"][0]["title"]
+
+
+def test_scanner_input_model_with_topic():
+    input_model = FinancialHotSpotScannerInput(topic="创新药")
+    assert input_model.topic == "创新药"
+
+
+def test_scanner_input_model_topic_default():
+    input_model = FinancialHotSpotScannerInput()
+    assert input_model.topic is None

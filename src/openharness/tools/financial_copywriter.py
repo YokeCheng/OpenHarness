@@ -74,7 +74,7 @@ class FinancialCopywriterInput(BaseModel):
     )
     framework: str = Field(
         default="xingfengxiang",
-        description="文案框架：xingfengxiang(兴风向解读框架), standard(标准财经分析)",
+        description="文案框架：xingfengxiang(兴风向解读), standard(标准分析), knowledge_popularization(知识普及)",
     )
     style: str = Field(
         default="professional_accessible",
@@ -83,6 +83,10 @@ class FinancialCopywriterInput(BaseModel):
     model: str | None = Field(
         default=None,
         description="指定大模型（如 glm-4, qwen-max, deepseek-v3）；None则自动选择",
+    )
+    product_data: str | None = Field(
+        default=None,
+        description="产品推荐数据（JSON格式），包含product_name, product_code, nav, recent_change, risk_level, recommendation。None则不插入产品推荐",
     )
 
 
@@ -158,6 +162,35 @@ _FRAMEWORK_TEMPLATES: dict[str, str] = {
         "- 不得使用任何保证收益、稳赚不赔的表述\n"
         "- 不得给出具体买卖点位建议\n"
         "- 数据必须与原始信息一致\n"
+    ),
+    "knowledge_popularization": (
+        '你是一位专业的财经科普专家，正在为"兴风向"栏目撰写知识解读文章。\n'
+        '\n'
+        '请按以下四段式框架撰写文章：\n'
+        '\n'
+        '【兴风向·知识解读】{{标题}}\n'
+        '\n'
+        '一、概念定义\n'
+        '用通俗语言解释这个概念的核心含义，让普通读者也能理解。\n'
+        '避免过于学术化的表述，多用类比和实例。\n'
+        '\n'
+        '二、核心要点\n'
+        '列出3-5个关键特征或要点，每个要点用一小段文字说明。\n'
+        '要点应覆盖：定义特征、运作机制、与其他概念的区别。\n'
+        '\n'
+        '三、数据与趋势\n'
+        '引用关键数据和市场规模，展示发展趋势。\n'
+        '数据应来自原始热点信息，不得编造。\n'
+        '\n'
+        '四、投资参考\n'
+        '说明普通投资者如何参与这个领域，关注什么方向。\n'
+        '**严禁**推荐具体产品，使用"可关注"而非"建议买入"。\n'
+        '必须包含风险提示。\n'
+        '\n'
+        '合规要求：\n'
+        '- 不得使用任何保证收益、稳赚不赔的表述\n'
+        '- 不得推荐具体基金产品\n'
+        '- 数据必须与原始信息一致，不得编造\n'
     ),
 }
 
@@ -454,7 +487,7 @@ class FinancialCopywriterTool(BaseTool):
         framework = arguments.framework
         if framework not in _FRAMEWORK_TEMPLATES:
             return ToolResult(
-                output=f"未知的文案框架: '{framework}'。支持: xingfengxiang, standard",
+                output=f"未知的文案框架: '{framework}'。支持: xingfengxiang, standard, knowledge_popularization",
                 is_error=True,
             )
 
@@ -477,6 +510,26 @@ class FinancialCopywriterTool(BaseTool):
             f"请基于以下财经热点数据撰写解读文章：\n\n{hotspot_brief}\n\n"
             f"请确保文章内容与上述热点数据的事实一致，不得编造数据或歪曲事实。"
         )
+
+        # Add product data to user prompt if provided
+        if arguments.product_data:
+            try:
+                product = json.loads(arguments.product_data)
+            except json.JSONDecodeError:
+                return ToolResult(
+                    output="product_data JSON解析失败",
+                    is_error=True,
+                )
+            product_brief = (
+                f'\n\n**产品推荐信息**（请在"市场影响"和"投资建议"之间自然插入推荐）：\n'
+                f'- 产品名称: {product.get("product_name", "")}\n'
+                f'- 产品代码: {product.get("product_code", "")}\n'
+                f'- 最新净值: {product.get("nav", "")}\n'
+                f'- 近期涨跌: {product.get("recent_change", "")}\n'
+                f'- 风险等级: {product.get("risk_level", "")}\n'
+                f'- 推荐理由: {product.get("recommendation", "")}\n'
+            )
+            user_prompt += product_brief
 
         # 4. Call LLM
         try:
@@ -531,6 +584,7 @@ class FinancialCopywriterTool(BaseTool):
                 "fact_check_confidence": fact_result["fact_check_confidence"],
             },
             "generated_at": generated_at,
+            "product_data": arguments.product_data,
         }
 
         return ToolResult(output=output_text, metadata=metadata)

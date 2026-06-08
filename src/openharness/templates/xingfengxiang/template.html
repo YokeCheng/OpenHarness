@@ -7,40 +7,63 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- AI decoration: header illustration -->
-    {% if decoration_header %}
-    <img class="decoration-header-illustration" src="{{ decoration_header }}" alt="插图">
-    {% endif %}
+    <!-- Left decoration bar (贯穿全文) -->
+    <div class="left-bar"></div>
 
     <!-- Top: Brand + Title + Date -->
     <div class="header">
+        {% if decoration_header %}
+        <img class="decoration-header-illustration" src="{{ decoration_header }}" alt="插图">
+        {% endif %}
         <div class="brand-tag">兴风向</div>
         <h1 class="article-title">{{ article_title }}</h1>
         <div class="article-date">{{ generated_date }}</div>
         <div class="header-divider"></div>
     </div>
 
-    <!-- Middle: Content sections -->
+    <!-- Middle: Content sections with alternating backgrounds -->
     <div class="content">
         {% for section in sections %}
-        <div class="section-block">
+        {% if loop.index is odd %}
+        <div class="section-white">
+        {% else %}
+        <div class="section-gold">
+        {% endif %}
             <h2 class="section-title">{{ section.title }}</h2>
             <div class="section-body">{{ section.body }}</div>
             {% if section.data_cards %}
             <div>
                 {% for card in section.data_cards %}
-                <span class="data-card">{{ card }}</span>
+                <span class="product-nav">{{ card }}</span>
                 {% endfor %}
             </div>
             {% endif %}
-            {% if decoration_chart and loop.index == 2 %}
-            <img class="decoration-chart-icon" src="{{ decoration_chart }}" alt="图表图标">
-            {% endif %}
         </div>
+        {% if not loop.last %}
+        <div class="section-divider"></div>
+        {% endif %}
         {% endfor %}
+
+        <!-- Product card (optional, inserted between content and conclusion) -->
+        {% if product_info %}
+        <div class="section-divider"></div>
+        <div class="product-card">
+            <div class="product-card-header">相关产品推荐</div>
+            <div class="product-card-body">
+                <div class="product-name">{{ product_info.product_name }}</div>
+                <div class="product-code">代码: {{ product_info.product_code }}</div>
+                <div class="product-stats">
+                    <span class="product-nav">净值: {{ product_info.nav }}</span>
+                    <span class="product-change">近期: {{ product_info.recent_change }}</span>
+                </div>
+                <div class="product-risk">风险等级: {{ product_info.risk_level }}</div>
+                <div class="product-recommendation">{{ product_info.recommendation }}</div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
-    <!-- Bottom: Conclusion + Risk + Footer -->
+    <!-- Bottom: Conclusion + Risk Warning + Footer -->
     <div class="conclusion">
         <h3 class="conclusion-title">{{ conclusion_title }}</h3>
         <div class="conclusion-body">{{ conclusion_body }}</div>
@@ -49,6 +72,7 @@
 
     <div class="footer">
         <span class="footer-brand">兴风向 · 财经热点解读</span>
+        <div class="footer-disclaimer">本文由AI辅助生成，内容仅供参考，不构成任何投资建议。数据来源以原文为准。</div>
         {% if decoration_footer %}
         <img class="decoration-footer-badge" src="{{ decoration_footer }}" alt="品牌徽章">
         {% endif %}
