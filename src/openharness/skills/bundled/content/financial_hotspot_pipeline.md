@@ -15,8 +15,8 @@ description: 给定主题→搜索热点→生成文案→渲染长图的全流�
 - **主题**：什么事件/知识点？（如"央行降息"、"创新药"、"科创板"）
 - **内容类型**：
   - `knowledge_popularization` — 知识普及型（"什么是XX"、"XX怎么看"）
-  - `xingfengxiang` — 纯热点分析型（"央行降息意味着什么"）
-  - `xingfengxiang` + 产品数据 — 热点+产品推荐型（兴业证券业务场景）
+  - `xingfengxiang_analysis` — 纯热点分析型（"央行降息意味着什么"）
+  - `xingfengxiang_with_product` — 热点+产品推荐型（兴业证券业务场景）
 - **是否带产品推荐**：如果类型是热点+产品，需要提供产品数据（JSON格式，包含product_name, product_code, nav, recent_change, risk_level, recommendation）
 
 ## 步骤1：搜索热点
@@ -66,6 +66,7 @@ description: 给定主题→搜索热点→生成文案→渲染长图的全流�
 - **是**：继续步骤3，使用建议的 visual_theme
 - **否**：继续步骤3，使用默认视觉主题（不传 visual_theme 参数）
 - **自定义**：询问用户具体的视觉要求（主题、配色、元素），构建自定义 visual_theme JSON
+- **如果用户输入其他内容，重复询问直到获得有效选择**
 
 ## 步骤3：生成长图
 
@@ -76,7 +77,7 @@ description: 给定主题→搜索热点→生成文案→渲染长图的全流�
 - ai_decorations: true
 - visual_theme: 步骤2.5确定的视觉主题 JSON（如果有）
 - product_data: 如果带产品推荐，传入产品 JSON；否则不传
-- output_dir: "{cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/infographics"
+- output_dir: "{{cwd}}/data/financial_hotspot_pipeline/{{YYYY-MM-DD}}/infographics"
 
 **尺寸合规检查**（宽度必须1080px，高度≥1920px）：
 - 不合规 → 相同参数重试最多3次
@@ -84,7 +85,7 @@ description: 给定主题→搜索热点→生成文案→渲染长图的全流�
 
 ## 步骤4：保存记录
 
-保存到 {cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/：
+保存到 {{cwd}}/data/financial_hotspot_pipeline/{{YYYY-MM-DD}}/：
 - hotspots.json — 步骤1原始数据
 - article.md — 步骤2文案
 - infographic.png — 步骤3长图（已自动保存）
@@ -96,7 +97,7 @@ pipeline_log.json：
     "run_time": "当前UTC时间",
     "trigger": "manual",
     "topic": "用户指定的主题",
-    "content_type": "knowledge_popularization | xingfengxiang | xingfengxiang_with_product",
+    "content_type": "knowledge_popularization | xingfengxiang_analysis | xingfengxiang_with_product",
     "visual_theme": "使用的视觉主题",
     "hotspots_scanned": 5,
     "compliance_passed": true,
@@ -115,7 +116,7 @@ pipeline_log.json：
 
 ## Cron 定时配置（可选）
 
-CronCreate: cron="0 9 * * *", prompt="/financial_hotspot_pipeline", durable=true
+用户可以通过 /config 工具或直接编辑 .claude/settings.json 来配置定时任务
 
 ## 注意事项
 
