@@ -240,6 +240,27 @@ def _check_sensitive_words(article: str) -> dict[str, Any]:
     }
 
 
+def _run_compliance_checks(article: str, hotspots: list[dict[str, str]]) -> tuple[bool, list[str], dict[str, Any]]:
+    """Run all compliance checks and return results."""
+    sensitive_result = _check_sensitive_words(article)
+    fact_result = _check_facts(article, hotspots)
+    terminology_result = _check_terminology(article)
+
+    all_issues = (
+        sensitive_result["issues"]
+        + fact_result["issues"]
+        + terminology_result["issues"]
+    )
+    compliance_passed = len(all_issues) == 0
+
+    compliance_metadata = {
+        "sensitive_words_found": sensitive_result["sensitive_words_found"],
+        "fact_check_confidence": fact_result["fact_check_confidence"],
+    }
+
+    return compliance_passed, all_issues, compliance_metadata
+
+
 # ---------------------------------------------------------------------------
 # Compliance check: fact verification against original hotspot data
 # ---------------------------------------------------------------------------
@@ -356,6 +377,7 @@ def _check_terminology(article: str) -> dict[str, Any]:
 def _extract_visual_theme(article: str) -> dict[str, Any]:
     """Extract visual theme suggestions from article's 【视觉建议】 section."""
     if "【视觉建议】" not in article:
+        logger.debug("No visual suggestion marker found in article")
         return _DEFAULT_VISUAL_THEME
 
     # Find the JSON content after 【视觉建议】
@@ -365,6 +387,7 @@ def _extract_visual_theme(article: str) -> dict[str, Any]:
     # Extract the first valid JSON object
     json_match = re.search(r'\{.*?\}', json_content, re.DOTALL)
     if not json_match:
+        logger.warning("Visual suggestion marker found but no JSON object detected")
         return _DEFAULT_VISUAL_THEME
 
     try:
@@ -374,8 +397,14 @@ def _extract_visual_theme(article: str) -> dict[str, Any]:
         if all(field in theme_dict for field in required_fields):
             return theme_dict
         else:
+            missing_fields = [field for field in required_fields if field not in theme_dict]
+            logger.warning(f"Visual theme JSON missing required fields: {missing_fields}")
             return _DEFAULT_VISUAL_THEME
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse visual theme JSON: {e}")
+        return _DEFAULT_VISUAL_THEME
+    except TypeError as e:
+        logger.warning(f"Unexpected type error in visual theme extraction: {e}")
         return _DEFAULT_VISUAL_THEME
 
 
@@ -468,6 +497,8 @@ def _extract_key_points(article: str) -> list[str]:
         numbered_pattern = re.compile(r"^[一二三四五六七八九十]+、(.+)$", re.MULTILINE)
         for match in numbered_pattern.finditer(article):
             section = match.group(1).strip()
+            # Remove numbering prefix from the extracted section
+            section = re.sub(r"^[一二三四五六七八九十]+、\s*", "", section)
             if section and len(section) > 2:
                 points.append(section)
 
@@ -596,16 +627,7 @@ class FinancialCopywriterTool(BaseTool):
             )
 
         # 5. Run compliance checks
-        sensitive_result = _check_sensitive_words(article)
-        fact_result = _check_facts(article, hotspots)
-        terminology_result = _check_terminology(article)
-
-        all_issues = (
-            sensitive_result["issues"]
-            + fact_result["issues"]
-            + terminology_result["issues"]
-        )
-        compliance_passed = len(all_issues) == 0
+        compliance_passed, all_issues, compliance_metadata = _run_compliance_checks(article, hotspots)
 
         # 6. Extract key points from article
         key_points = _extract_key_points(article)
@@ -632,8 +654,7 @@ class FinancialCopywriterTool(BaseTool):
             "compliance_check": {
                 "passed": compliance_passed,
                 "issues": all_issues,
-                "sensitive_words_found": sensitive_result["sensitive_words_found"],
-                "fact_check_confidence": fact_result["fact_check_confidence"],
+                **compliance_metadata,
             },
             "generated_at": generated_at,
             "product_data": arguments.product_data,

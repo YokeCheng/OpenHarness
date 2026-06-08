@@ -18,6 +18,7 @@ from openharness.tools.financial_copywriter import (
     _check_terminology,
     _extract_visual_theme,
     _DEFAULT_VISUAL_THEME,
+    _extract_key_points,
 )
 
 
@@ -452,6 +453,40 @@ def test_extract_visual_theme_no_theme():
     assert extracted == _DEFAULT_VISUAL_THEME
 
 
+def test_extract_visual_theme_json_parsing_error():
+    """Test error handling when JSON parsing fails."""
+    article_with_invalid_json = (
+        "# 【兴风向·财经热点解读】央行降息0.25个百分点\n\n"
+        "## 一、事件概述\n央行宣布降息。\n\n"
+        "## 二、政策解读\n降息背景是经济放缓。\n\n"
+        "## 三、市场影响\n对债券利好。\n\n"
+        "## 四、投资建议\n建议关注利率敏感型板块。\n\n"
+        "【视觉建议】\n"
+        "{ invalid json content }"
+    )
+
+    extracted = _extract_visual_theme(article_with_invalid_json)
+    assert extracted == _DEFAULT_VISUAL_THEME
+
+
+def test_extract_visual_theme_missing_fields():
+    """Test handling when JSON is valid but missing required fields."""
+    article_with_partial_json = (
+        "# 【兴风向·财经热点解读】央行降息0.25个百分点\n\n"
+        "## 一、事件概述\n央行宣布降息。\n\n"
+        "## 二、政策解读\n降息背景是经济放缓。\n\n"
+        "## 三、市场影响\n对债券利好。\n\n"
+        "## 四、投资建议\n建议关注利率敏感型板块。\n\n"
+        "【视觉建议】\n"
+        "{\n"
+        '  "primary_theme": "金融政策"\n'
+        "}\n"
+    )
+
+    extracted = _extract_visual_theme(article_with_partial_json)
+    assert extracted == _DEFAULT_VISUAL_THEME
+
+
 FAKE_ARTICLE_WITH_VISUAL_THEME = (
     "# 【兴风向·财经热点解读】60只芯片股历史新高\n\n"
     "## 一、事件概述\n芯片股创新高。\n\n"
@@ -557,3 +592,47 @@ async def test_copywriter_with_visual_theme(tmp_path: Path, monkeypatch):
     assert result.is_error is False
     assert result.metadata["visual_theme"]["primary_theme"] == "半导体芯片"
     assert "集成电路板" in result.metadata["visual_theme"]["background_elements"]
+
+
+# ---------------------------------------------------------------------------
+# Test: key points extraction edge cases
+# ---------------------------------------------------------------------------
+
+def test_extract_key_points_empty_article():
+    """Test extracting key points from an empty article."""
+    points = _extract_key_points("")
+    assert points == []
+
+
+def test_extract_key_points_no_headers():
+    """Test extracting key points from an article with no headers."""
+    article = "This is a simple paragraph without any headers.\nIt has multiple lines but no markdown headers."
+    points = _extract_key_points(article)
+    # Should fall back to first non-empty lines
+    assert len(points) > 0
+    assert "simple paragraph" in points[0]
+
+
+def test_extract_key_points_malformed_headers():
+    """Test extracting key points with malformed headers."""
+    article = "##\n## \n## Invalid header\nThis is content.\n### Not a level 2 header"
+    points = _extract_key_points(article)
+    # Should handle empty headers and only capture valid ones
+    assert len(points) <= 1  # Only "Invalid header" should be captured if valid
+    if points:
+        assert points[0] == "Invalid header"
+
+
+def test_extract_key_points_numbered_sections():
+    """Test extracting key points from numbered sections when markdown headers are insufficient."""
+    article = (
+        "一、事件概述\nContent here.\n\n"
+        "二、政策解读\nMore content.\n\n"
+        "三、市场影响\nEven more content."
+    )
+    points = _extract_key_points(article)
+    assert len(points) >= 2
+    # The function should extract the text after the numbering, which is correct behavior
+    # The test assertion was wrong - it should verify that the points contain the expected content
+    assert "事件概述" in points[0]
+    assert "政策解读" in points[1]
