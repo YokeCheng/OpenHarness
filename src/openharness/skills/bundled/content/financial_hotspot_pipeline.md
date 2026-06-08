@@ -46,11 +46,26 @@ description: 给定主题→搜索热点→生成文案→渲染长图的全流�
 
 **合规检查**：
 - ToolResult.metadata["compliance_check"]["passed"] == False → 保存为 _nc.md，提示用户人工审核
-- passed == True → 继续步骤3
+- passed == True → 继续步骤2.5
 
 **LLM 调用失败处理**：
 - 换模型重试一次（glm-4 → qwen-max → deepseek-v3）
 - 仍失败 → Pipeline 终止
+
+## 步骤2.5：确认视觉风格（可选）
+
+如果用户未在步骤0中指定视觉风格，展示 LLM 生成的视觉建议：
+- 主题：{{ ToolResult.metadata["visual_theme"]["primary_theme"] }}
+- 配色：{{ ToolResult.metadata["visual_theme"]["color_palette"] }}
+- 背景元素：{{ ToolResult.metadata["visual_theme"]["background_elements"] | join(', ') }}
+
+询问用户：
+- 是否接受此视觉方案？[是/否/自定义]
+
+**用户选择处理**：
+- **是**：继续步骤3，使用建议的 visual_theme
+- **否**：继续步骤3，使用默认视觉主题（不传 visual_theme 参数）
+- **自定义**：询问用户具体的视觉要求（主题、配色、元素），构建自定义 visual_theme JSON
 
 ## 步骤3：生成长图
 
@@ -59,6 +74,7 @@ description: 给定主题→搜索热点→生成文案→渲染长图的全流�
 - article_title: 主题标题
 - template: "xingfengxiang_default"
 - ai_decorations: true
+- visual_theme: 步骤2.5确定的视觉主题 JSON（如果有）
 - product_data: 如果带产品推荐，传入产品 JSON；否则不传
 - output_dir: "{cwd}/data/financial_hotspot_pipeline/{YYYY-MM-DD}/infographics"
 
@@ -81,6 +97,7 @@ pipeline_log.json：
     "trigger": "manual",
     "topic": "用户指定的主题",
     "content_type": "knowledge_popularization | xingfengxiang | xingfengxiang_with_product",
+    "visual_theme": "使用的视觉主题",
     "hotspots_scanned": 5,
     "compliance_passed": true,
     "image_size": "1080x3500",
@@ -105,3 +122,4 @@ CronCreate: cron="0 9 * * *", prompt="/financial_hotspot_pipeline", durable=true
 - 长图宽度必须1080px（一票否决），高度动态伸缩
 - 所有中间产物必须保存
 - 合规未通过的文案仍然保存，供人工审核
+- AI装饰元素生成可能增加处理时间，但显著提升视觉效果
