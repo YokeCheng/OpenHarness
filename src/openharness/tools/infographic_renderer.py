@@ -32,6 +32,7 @@ _DEFAULT_VISUAL_THEME: dict[str, Any] = {
     "background_elements": ["抽象科技纹理", "数据流", "向上箭头"],
     "chart_styles": ["柱状图", "折线图", "饼图"]
 }
+_SUPPORTED_TEMPLATES: set[str] = {"xingfengxiang_default"}
 
 # ---------------------------------------------------------------------------
 # Input model
@@ -175,7 +176,21 @@ def _fill_template(
     section_backgrounds: list[str] | None = None,
 ) -> str:
     """Fill the Jinja2 HTML template with article content."""
+
+    def safe_url_filter(url: str | None) -> str:
+        """Sanitize URL for use in HTML attributes to prevent XSS."""
+        if not url:
+            return ""
+        # Basic URL validation - ensure it's a local file path or safe URL
+        if url.startswith(("http://", "https://", "/")):
+            return url
+        # For relative paths, ensure they don't contain dangerous characters
+        if ".." in url or "<" in url or ">" in url or "'" in url or '"' in url:
+            return ""
+        return url
+
     env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)))
+    env.filters["safe_url"] = safe_url_filter
     template = env.get_template("template.html")
 
     return template.render(
@@ -367,9 +382,9 @@ class InfographicRendererTool(BaseTool):
             )
 
         # 3. Validate template
-        if arguments.template != "xingfengxiang_default":
+        if arguments.template not in _SUPPORTED_TEMPLATES:
             return ToolResult(
-                output=f"未知的模板: '{arguments.template}'。目前仅支持: xingfengxiang_default",
+                output=f"未知的模板: '{arguments.template}'。目前仅支持: {', '.join(_SUPPORTED_TEMPLATES)}",
                 is_error=True,
             )
 
@@ -421,18 +436,26 @@ class InfographicRendererTool(BaseTool):
             )
             decoration_header = await _generate_ai_image(s0_prompt, "1080x600", context)
 
-            # Generate section header backgrounds for each section
-            for i, section in enumerate(sections):
-                section_prompt = _build_dynamic_image_prompt(
-                    content_theme=visual_theme["primary_theme"],
-                    visual_suggestions=visual_theme,
-                    element_type="section_header"
-                )
-                section_bg = await _generate_ai_image(section_prompt, "1080x80", context)
-                section_backgrounds.append(section_bg if section_bg else "")
+            # Generate section header background once and reuse for all sections
+            section_prompt = _build_dynamic_image_prompt(
+                content_theme=visual_theme["primary_theme"],
+                visual_suggestions=visual_theme,
+                element_type="section_header"
+            )
+            section_bg = await _generate_ai_image(section_prompt, "1080x80", context)
+
+            # Use CSS fallback if AI generation fails
+            css_fallback = "linear-gradient(90deg, #f5a623 0%, #f8e71c 100%)"
+            section_backgrounds = [section_bg if section_bg else css_fallback] * len(sections)
+
+            # Apply CSS fallback for header if needed
+            if not decoration_header:
+                decoration_header = css_fallback
         else:
-            # No AI decorations
-            section_backgrounds = [""] * len(sections)
+            # No AI decorations - use CSS fallbacks
+            css_fallback = "linear-gradient(90deg, #f5a623 0%, #f8e71c 100%)"
+            section_backgrounds = [css_fallback] * len(sections)
+            decoration_header = css_fallback
 
         # 8. Fill template
         generated_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")

@@ -12,8 +12,8 @@
 
     <!-- Top: Brand + Title + Date -->
     <div class="header"
-         {% if decoration_header %}style="background-image: url('{{ decoration_header }}'); background-size: cover; background-position: center;"{% endif %}>
-        <div class="brand-tag">兴风向</div>
+         {% if decoration_header %}style="background-image: url('{{ decoration_header | safe_url }}'); background-size: cover; background-position: center;"{% endif %}>
+        <div class="brand-tag">{{ brand_name or "兴风向" }}</div>
         <h1 class="article-title">{{ article_title }}</h1>
         <div class="article-date">{{ generated_date }}</div>
         <div class="header-divider"></div>
@@ -29,7 +29,7 @@
             <div class="section-gold">
             {% endif %}
                 {% if section_backgrounds and section_backgrounds[loop.index0] %}
-                <div class="section-header" style="background-image: url('{{ section_backgrounds[loop.index0] }}'); background-size: repeat-x; background-position: left;">
+                <div class="section-header" style="background-image: url('{{ section_backgrounds[loop.index0] | safe_url }}'); background-size: repeat-x; background-position: left;">
                     <h2 class="section-title">{{ section.title }}</h2>
                 </div>
                 {% else %}
@@ -54,7 +54,7 @@
         {% if product_info %}
         <div class="section-divider"></div>
         <div class="product-card">
-            <div class="product-card-header">相关产品推荐</div>
+            <div class="product-card-header">{{ product_card_header or "相关产品推荐" }}</div>
             <div class="product-card-body">
                 <div class="product-name">{{ product_info.product_name }}</div>
                 <div class="product-code">代码: {{ product_info.product_code }}</div>
@@ -73,14 +73,14 @@
     <div class="conclusion">
         <h3 class="conclusion-title">{{ conclusion_title }}</h3>
         <div class="conclusion-body">{{ conclusion_body }}</div>
-        <div class="risk-warning">⚠️ 风险提示：以上分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。</div>
+        <div class="risk-warning">⚠️ {{ risk_warning or "风险提示：以上分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。" }}</div>
     </div>
 
     <div class="footer">
-        <span class="footer-brand">兴风向 · 财经热点解读</span>
-        <div class="footer-disclaimer">本文由AI辅助生成，内容仅供参考，不构成任何投资建议。数据来源以原文为准。</div>
+        <span class="footer-brand">{{ footer_brand or "兴风向 · 财经热点解读" }}</span>
+        <div class="footer-disclaimer">{{ footer_disclaimer or "本文由AI辅助生成，内容仅供参考，不构成任何投资建议。数据来源以原文为准。" }}</div>
         {% if decoration_footer %}
-        <img class="decoration-footer-badge" src="{{ decoration_footer }}" alt="品牌徽章">
+        <img class="decoration-footer-badge" src="{{ decoration_footer }}" alt="">
         {% endif %}
     </div>
 </body>
