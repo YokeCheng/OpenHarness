@@ -529,55 +529,37 @@ class FinancialCopywriterTool(BaseTool):
         del arguments
         return True
 
-    async def execute(
-        self,
-        arguments: FinancialCopywriterInput,
-        context: ToolExecutionContext,
-    ) -> ToolResult:
-        del context
-
-        # 1. Parse hotspot_data JSON
+    def _validate_and_parse_inputs(self, arguments: FinancialCopywriterInput) -> tuple[list[dict[str, Any]], str, str, str, str]:
+        """Validate and parse input arguments."""
+        # Parse hotspot_data JSON
         try:
             hotspots = json.loads(arguments.hotspot_data)
         except json.JSONDecodeError as exc:
-            return ToolResult(
-                output=f"hotspot_data JSON解析失败: {exc}",
-                is_error=True,
-            )
+            raise ValueError(f"hotspot_data JSON解析失败: {exc}")
 
         if not isinstance(hotspots, list) or not hotspots:
-            return ToolResult(
-                output="热点数据为空或格式不正确：需要非空JSON数组",
-                is_error=True,
-            )
+            raise ValueError("热点数据为空或格式不正确：需要非空JSON数组")
 
-        # 2. Resolve model configuration
-        try:
-            if arguments.model:
-                api_key, base_url, model_name = _resolve_model_config(arguments.model)
-            else:
-                api_key, base_url, model_name = _auto_select_model()
-        except RuntimeError as exc:
-            return ToolResult(
-                output=str(exc),
-                is_error=True,
-            )
+        # Resolve model configuration
+        if arguments.model:
+            api_key, base_url, model_name = _resolve_model_config(arguments.model)
+        else:
+            api_key, base_url, model_name = _auto_select_model()
 
-        # 3. Build prompts from framework template + style
+        # Validate framework
         framework = arguments.framework
         if framework not in _FRAMEWORK_TEMPLATES:
-            return ToolResult(
-                output=f"未知的文案框架: '{framework}'。支持: xingfengxiang, standard, knowledge_popularization",
-                is_error=True,
-            )
+            raise ValueError(f"未知的文案框架: '{framework}'。支持: xingfengxiang, standard, knowledge_popularization")
 
+        # Validate style
         style = arguments.style
         if style not in _STYLE_INSTRUCTIONS:
-            return ToolResult(
-                output=f"未知的文案风格: '{style}'。支持: professional_accessible, academic, popular",
-                is_error=True,
-            )
+            raise ValueError(f"未知的文案风格: '{style}'。支持: professional_accessible, academic, popular")
 
+        return hotspots, api_key, base_url, model_name, framework, style
+
+    def _build_prompts(self, framework: str, style: str, hotspots: list[dict[str, Any]], product_data: str | None) -> tuple[str, str]:
+        """Build system and user prompts."""
         system_prompt = _FRAMEWORK_TEMPLATES[framework] + "\n\n" + _STYLE_INSTRUCTIONS[style]
 
         # Build user prompt from hotspot data
@@ -592,14 +574,11 @@ class FinancialCopywriterTool(BaseTool):
         )
 
         # Add product data to user prompt if provided
-        if arguments.product_data:
+        if product_data:
             try:
-                product = json.loads(arguments.product_data)
+                product = json.loads(product_data)
             except json.JSONDecodeError:
-                return ToolResult(
-                    output="product_data JSON解析失败",
-                    is_error=True,
-                )
+                raise ValueError("product_data JSON解析失败")
             product_brief = (
                 f'\n\n**产品推荐信息**（请在"市场影响"和"投资建议"之间自然插入推荐）：\n'
                 f'- 产品名称: {product.get("product_name", "")}\n'
@@ -611,7 +590,58 @@ class FinancialCopywriterTool(BaseTool):
             )
             user_prompt += product_brief
 
-        # 4. Call LLM
+        return system_prompt, user_prompt
+
+    def _build_metadata(
+        self,
+        article: str,
+        model_name: str,
+        framework: str,
+        key_points: list[str],
+        compliance_result: tuple[bool, list[str], dict[str, Any]],
+        generated_at: str,
+        product_data: str | None,
+        visual_theme: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build metadata dictionary."""
+        compliance_passed, all_issues, compliance_metadata = compliance_result
+
+        return {
+            "article_markdown": article,
+            "model_used": model_name,
+            "framework": framework,
+            "char_count": len(article),
+            "key_points": key_points,
+            "compliance_check": {
+                "passed": compliance_passed,
+                "issues": all_issues,
+                **compliance_metadata,
+            },
+            "generated_at": generated_at,
+            "product_data": product_data,
+            "visual_theme": visual_theme,
+        }
+
+    async def execute(
+        self,
+        arguments: FinancialCopywriterInput,
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        del context
+
+        # 1. Validate and parse inputs
+        try:
+            hotspots, api_key, base_url, model_name, framework, style = self._validate_and_parse_inputs(arguments)
+        except ValueError as exc:
+            return ToolResult(output=str(exc), is_error=True)
+
+        # 2. Build prompts
+        try:
+            system_prompt, user_prompt = self._build_prompts(framework, style, hotspots, arguments.product_data)
+        except ValueError as exc:
+            return ToolResult(output=str(exc), is_error=True)
+
+        # 3. Call LLM
         try:
             article = await _call_llm(
                 model=model_name,
@@ -626,16 +656,12 @@ class FinancialCopywriterTool(BaseTool):
                 is_error=True,
             )
 
-        # 5. Run compliance checks
-        compliance_passed, all_issues, compliance_metadata = _run_compliance_checks(article, hotspots)
-
-        # 6. Extract key points from article
+        # 4. Run compliance checks
+        compliance_result = _run_compliance_checks(article, hotspots)
         key_points = _extract_key_points(article)
-
-        # Extract visual theme suggestions from article
         visual_theme = _extract_visual_theme(article)
 
-        # 7. Build output text
+        # 5. Build output text
         generated_at = datetime.now(timezone.utc).isoformat()
         footer = (
             f"\n---\n"
@@ -644,21 +670,10 @@ class FinancialCopywriterTool(BaseTool):
         )
         output_text = article + footer
 
-        # 8. Build metadata
-        metadata: dict[str, Any] = {
-            "article_markdown": article,
-            "model_used": model_name,
-            "framework": framework,
-            "char_count": len(article),
-            "key_points": key_points,
-            "compliance_check": {
-                "passed": compliance_passed,
-                "issues": all_issues,
-                **compliance_metadata,
-            },
-            "generated_at": generated_at,
-            "product_data": arguments.product_data,
-            "visual_theme": visual_theme,
-        }
+        # 6. Build metadata
+        metadata = self._build_metadata(
+            article, model_name, framework, key_points, compliance_result,
+            generated_at, arguments.product_data, visual_theme
+        )
 
         return ToolResult(output=output_text, metadata=metadata)
