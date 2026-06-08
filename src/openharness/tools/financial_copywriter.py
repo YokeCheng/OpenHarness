@@ -334,6 +334,13 @@ _INFORMAL_TO_STANDARD: dict[str, str] = {
     "割韭菜": "投资者受损",
 }
 
+_DEFAULT_VISUAL_THEME: dict[str, Any] = {
+    "primary_theme": "金融科技",
+    "color_palette": "金橙暖色系",
+    "background_elements": ["抽象科技纹理", "数据流", "向上箭头"],
+    "chart_styles": ["柱状图", "折线图", "饼图"]
+}
+
 
 def _check_terminology(article: str) -> dict[str, Any]:
     """Check that professional terminology is used in standard form."""
@@ -344,6 +351,32 @@ def _check_terminology(article: str) -> dict[str, Any]:
     return {
         "issues": issues,
     }
+
+
+def _extract_visual_theme(article: str) -> dict[str, Any]:
+    """Extract visual theme suggestions from article's 【视觉建议】 section."""
+    if "【视觉建议】" not in article:
+        return _DEFAULT_VISUAL_THEME
+
+    # Find the JSON content after 【视觉建议】
+    theme_marker_pos = article.find("【视觉建议】")
+    json_content = article[theme_marker_pos + len("【视觉建议】"):].strip()
+
+    # Extract the first valid JSON object
+    json_match = re.search(r'\{.*?\}', json_content, re.DOTALL)
+    if not json_match:
+        return _DEFAULT_VISUAL_THEME
+
+    try:
+        theme_dict = json.loads(json_match.group(0))
+        # Validate required fields
+        required_fields = ["primary_theme", "color_palette", "background_elements", "chart_styles"]
+        if all(field in theme_dict for field in required_fields):
+            return theme_dict
+        else:
+            return _DEFAULT_VISUAL_THEME
+    except (json.JSONDecodeError, TypeError):
+        return _DEFAULT_VISUAL_THEME
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +610,9 @@ class FinancialCopywriterTool(BaseTool):
         # 6. Extract key points from article
         key_points = _extract_key_points(article)
 
+        # Extract visual theme suggestions from article
+        visual_theme = _extract_visual_theme(article)
+
         # 7. Build output text
         generated_at = datetime.now(timezone.utc).isoformat()
         footer = (
@@ -601,6 +637,7 @@ class FinancialCopywriterTool(BaseTool):
             },
             "generated_at": generated_at,
             "product_data": arguments.product_data,
+            "visual_theme": visual_theme,
         }
 
         return ToolResult(output=output_text, metadata=metadata)

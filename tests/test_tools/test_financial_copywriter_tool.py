@@ -16,6 +16,8 @@ from openharness.tools.financial_copywriter import (
     _check_sensitive_words,
     _check_facts,
     _check_terminology,
+    _extract_visual_theme,
+    _DEFAULT_VISUAL_THEME,
 )
 
 
@@ -404,6 +406,70 @@ FAKE_PRODUCT_DATA = json.dumps({
 })
 
 
+# ---------------------------------------------------------------------------
+# Test: visual theme extraction
+# ---------------------------------------------------------------------------
+
+def test_extract_visual_theme_from_article():
+    article_with_theme = (
+        "# 【兴风向·财经热点解读】60只芯片股历史新高\n\n"
+        "## 一、事件概述\n芯片股创新高。\n\n"
+        "## 二、政策解读\n半导体产业政策利好。\n\n"
+        "## 三、市场影响\n对科技板块形成支撑。\n\n"
+        "## 四、投资建议\n建议关注国产替代方向。\n\n"
+        "---\n"
+        "生成信息：模型=glm-4 | 框架=xingfengxiang | 字数=856 | 时间=2026-06-07T17:05:00\n\n"
+        "【视觉建议】\n"
+        "{\n"
+        '  "primary_theme": "半导体芯片",\n'
+        '  "color_palette": "金橙科技色",\n'
+        '  "background_elements": ["集成电路板", "CPU芯片", "向上增长箭头"],\n'
+        '  "chart_styles": ["配比趋势图", "市场规模柱状图"]\n'
+        "}\n"
+    )
+
+    expected_theme = {
+        "primary_theme": "半导体芯片",
+        "color_palette": "金橙科技色",
+        "background_elements": ["集成电路板", "CPU芯片", "向上增长箭头"],
+        "chart_styles": ["配比趋势图", "市场规模柱状图"]
+    }
+
+    extracted = _extract_visual_theme(article_with_theme)
+    assert extracted == expected_theme
+
+
+def test_extract_visual_theme_no_theme():
+    article_without_theme = (
+        "# 【兴风向·财经热点解读】央行降息0.25个百分点\n\n"
+        "## 一、事件概述\n央行宣布降息。\n\n"
+        "## 二、政策解读\n降息背景是经济放缓。\n\n"
+        "## 三、市场影响\n对债券利好。\n\n"
+        "## 四、投资建议\n建议关注利率敏感型板块。\n"
+    )
+
+    extracted = _extract_visual_theme(article_without_theme)
+    assert extracted == _DEFAULT_VISUAL_THEME
+
+
+FAKE_ARTICLE_WITH_VISUAL_THEME = (
+    "# 【兴风向·财经热点解读】60只芯片股历史新高\n\n"
+    "## 一、事件概述\n芯片股创新高。\n\n"
+    "## 二、政策解读\n半导体产业政策利好。\n\n"
+    "## 三、市场影响\n对科技板块形成支撑。\n\n"
+    "## 四、投资建议\n建议关注国产替代方向。\n\n"
+    "---\n"
+    "生成信息：模型=glm-4 | 框架=xingfengxiang | 字数=856 | 时间=2026-06-07T17:05:00\n\n"
+    "【视觉建议】\n"
+    "{\n"
+    '  "primary_theme": "半导体芯片",\n'
+    '  "color_palette": "金橙科技色",\n'
+    '  "background_elements": ["集成电路板", "CPU芯片"],\n'
+    '  "chart_styles": ["配比趋势图"]\n'
+    "}\n"
+)
+
+
 def test_copywriter_input_model_with_product_data():
     input_obj = FinancialCopywriterInput(
         hotspot_data=FAKE_HOTSPOT_DATA,
@@ -458,3 +524,36 @@ async def test_copywriter_with_product_data(tmp_path: Path, monkeypatch):
     assert result.is_error is False
     assert "588200" in result.output or "科创芯片ETF" in result.output
     assert result.metadata["product_data"] is not None
+
+
+@pytest.mark.asyncio
+async def test_copywriter_with_visual_theme(tmp_path: Path, monkeypatch):
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    async def fake_call_llm(*, model: str, system_prompt: str, user_prompt: str, api_key: str, base_url: str) -> str:
+        del system_prompt, user_prompt, api_key, base_url
+        return FAKE_ARTICLE_WITH_VISUAL_THEME
+
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._call_llm",
+        fake_call_llm,
+    )
+
+    # Mock _auto_select_model to avoid API key requirements
+    monkeypatch.setattr(
+        "openharness.tools.financial_copywriter._auto_select_model",
+        lambda: ("fake-key", "https://fake.api/v1", "glm-4"),
+    )
+
+    tool = FinancialCopywriterTool()
+    result = await tool.execute(
+        FinancialCopywriterInput(
+            hotspot_data=FAKE_HOTSPOT_DATA,
+            framework="xingfengxiang",
+        ),
+        context,
+    )
+
+    assert result.is_error is False
+    assert result.metadata["visual_theme"]["primary_theme"] == "半导体芯片"
+    assert "集成电路板" in result.metadata["visual_theme"]["background_elements"]
