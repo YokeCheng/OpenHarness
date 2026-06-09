@@ -52,32 +52,14 @@ async def execute_prompt(
         return ExecuteResponse(**result)
 
     except ValueError as e:
-        logger.error(f"Validation error in execute: {e}")
+        logger.error("Validation error in execute: %s", e)
         raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
     except RuntimeError as e:
-        logger.error(f"Execution error: {e}")
+        logger.error("Execution error: %s", e)
         raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
     except Exception as e:
-        logger.error(f"Unexpected error in execute: {e}")
+        logger.error("Unexpected error in execute: %s", e)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-
-async def _sse_generator(prompt: str, execution_mode: str, context):
-    """Generate SSE events for streaming execution output."""
-    try:
-        result = await execute_prompt_via_existing_mechanism(
-            prompt=prompt,
-            execution_mode="stream",
-            tool_context=context,
-            sse_callback=lambda event_data: event_data
-        )
-
-        # For now, send a simple completion event
-        yield f"data: {json.dumps({'status': 'complete', 'result': result})}\n\n"
-
-    except Exception as e:
-        error_data = {"status": "error", "message": str(e)}
-        yield f"data: {json.dumps(error_data)}\n\n"
 
 
 @router.post("/execute/stream")
