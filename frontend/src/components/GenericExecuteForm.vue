@@ -41,7 +41,7 @@
 </template>
 
 <script>
-import { executeGeneric } from '@/api/openharness'
+import { createSSEConnection } from '@/api/openharness'
 
 export default {
   name: 'GenericExecuteForm',
@@ -52,7 +52,8 @@ export default {
         prompt: '',
         force_skill: 'financial-hotspot-pipeline'
       },
-      isExecuting: false
+      isExecuting: false,
+      sseConnection: null
     }
   },
   methods: {
@@ -65,13 +66,51 @@ export default {
       this.isExecuting = true
 
       try {
-        const result = await executeGeneric(this.formData)
-        this.$emit('execution-complete', result)
+        const payload = {
+          prompt: this.formData.prompt,
+          force_skill: this.formData.force_skill || undefined
+        }
+
+        this.sseConnection = createSSEConnection('/execute/stream', payload)
+
+        const connection = await this.sseConnection.start(
+          (data) => {
+            // Handle SSE events
+            console.log('SSE Event:', data)
+
+            if (data.event === 'execution_complete') {
+              this.$emit('execution-complete', data.data)
+              this.isExecuting = false
+            } else if (data.event === 'execution_error') {
+              this.$emit('execution-error', data.data.message)
+              this.isExecuting = false
+            }
+          },
+          (error) => {
+            this.$emit('execution-error', error.message || 'SSE连接失败')
+            this.isExecuting = false
+          },
+          () => {
+            // Stream completed
+            if (this.isExecuting) {
+              this.isExecuting = false
+            }
+          }
+        )
+
+        if (!connection) {
+          throw new Error('Failed to establish SSE connection')
+        }
       } catch (error) {
         this.$emit('execution-error', error.message || '执行失败')
-      } finally {
         this.isExecuting = false
       }
+    }
+  },
+  beforeUnmount() {
+    // Clean up SSE connection
+    if (this.sseConnection) {
+      this.sseConnection.close?.()
     }
   }
 }

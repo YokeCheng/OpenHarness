@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -70,23 +71,70 @@ async def execute_stream(
     """Execute prompt with SSE streaming output."""
     context = getattr(request.state, "tool_context", None)
 
+    # Create a queue for SSE events
+    sse_queue = asyncio.Queue()
+
+    async def sse_callback(event_type: str, data: dict):
+        """Callback function to send events to the SSE queue."""
+        event_data = {
+            "event": event_type,
+            "data": data
+        }
+        await sse_queue.put(json.dumps(event_data))
+
     async def event_generator():
-        yield f"data: {json.dumps({'message': f'Starting execution: {execute_request.prompt}'})}\n\n"
+        # Send initial start event
+        await sse_queue.put(json.dumps({
+            "event": "execution_start",
+            "data": {"prompt": execute_request.prompt, "force_skill": execute_request.force_skill}
+        }))
 
         try:
-            # This will be enhanced in Task 3 to actually stream events
+            # Execute with SSE callback for real-time streaming
             result = await execute_prompt_via_existing_mechanism(
                 prompt=execute_request.prompt,
                 force_skill=execute_request.force_skill,
                 execution_mode="stream",
                 context_override=execute_request.context,
                 tool_context=context,
+                sse_callback=sse_callback,
             )
-            yield f"data: {json.dumps({'status': 'complete', 'result': result})}\n\n"
+
+            # Send final completion event
+            await sse_queue.put(json.dumps({
+                "event": "execution_complete",
+                "data": result
+            }))
+
         except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+            # Send error event
+            await sse_queue.put(json.dumps({
+                "event": "execution_error",
+                "data": {"message": str(e)}
+            }))
+
+        # Signal end of stream
+        await sse_queue.put(None)
+
+    async def sse_stream():
+        """Stream events from the queue as proper SSE format."""
+        # Start the execution in the background
+        generator_task = asyncio.create_task(event_generator())
+
+        try:
+            while True:
+                event_json = await sse_queue.get()
+                if event_json is None:
+                    break
+                yield f"data: {event_json}\n\n"
+        except Exception as e:
+            logger.error(f"SSE stream error: {e}")
+            yield f"data: {json.dumps({'event': 'stream_error', 'data': {'message': str(e)}})}\n\n"
+        finally:
+            # Ensure the generator task completes
+            await generator_task
 
     return StreamingResponse(
-        event_generator(),
+        sse_stream(),
         media_type="text/event-stream"
     )

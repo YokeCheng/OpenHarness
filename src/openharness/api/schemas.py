@@ -16,6 +16,10 @@ class FinancialHotspotPipelineRequest(BaseModel):
         min_length=1,
         max_length=200,
     )
+    content: Optional[str] = Field(
+        default=None,
+        description="Optional user-provided news content or context to enhance the analysis",
+    )
     content_type: str = Field(
         default="xingfengxiang",
         description="Content type/framework for the article",

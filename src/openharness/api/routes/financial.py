@@ -45,6 +45,7 @@ async def financial_hotspot_pipeline(
 
         result = await execute_financial_hotspot_pipeline(
             topic=pipeline_request.topic,
+            content=pipeline_request.content,
             content_type=pipeline_request.content_type,
             product_data=pipeline_request.product_data,
             context=context,

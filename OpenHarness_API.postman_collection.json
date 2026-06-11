@@ -1,0 +1,96 @@
+# OpenHarness API Postman Collection
+
+{
+	"info": {
+		"_postman_id": "openharness-api-collection",
+		"name": "OpenHarness Financial Hotspot Pipeline API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/v1/health",
+					"host": ["{{base_url}}"],
+					"path": ["api", "v1", "health"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Financial Hotspot Pipeline - Dedicated Endpoint",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"topic\": \"60只芯片股历史新高\",\n  \"content\": \"2026年5月6日至8日，A股市场共有247只个股股价创历史新高，其中芯片概念股多达60只，为创新高个股最集中的概念板块。AI算力架构正被AGENT浪潮重构，CPU地位重估、ASIC芯片崛起、存储芯片高景气三大主线共同支撑芯片板块走强。\",\n  \"content_type\": \"xingfengxiang\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/financial-hotspot-pipeline",
+					"host": ["{{base_url}}"],
+					"path": ["api", "v1", "financial-hotspot-pipeline"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Execute - Generic Endpoint",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"prompt\": \"热点生图：60只芯片股历史新高\",\n  \"force_skill\": \"financial-hotspot-pipeline\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/execute",
+					"host": ["{{base_url}}"],
+					"path": ["api", "v1", "execute"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Execute Stream - SSE Endpoint",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"prompt\": \"热点生图：60只芯片股历史新高\",\n  \"force_skill\": \"financial-hotspot-pipeline\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/execute/stream",
+					"host": ["{{base_url}}"],
+					"path": ["api", "v1", "execute", "stream"]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000"
+		}
+	]
+}

@@ -59,7 +59,7 @@
 </template>
 
 <script>
-import { executeFinancialHotspotPipeline } from '@/api/openharness'
+import { createSSEConnection } from '@/api/openharness'
 import ProgressIndicator from './ProgressIndicator.vue'
 
 export default {
@@ -76,7 +76,8 @@ export default {
         content: ''
       },
       isExecuting: false,
-      currentStep: 0
+      currentStep: 0,
+      sseConnection: null
     }
   },
   methods: {
@@ -90,22 +91,54 @@ export default {
       this.currentStep = 0
 
       try {
-        // Simulate step progression for demo
-        this.currentStep = 1 // Hotspot scanning
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        // Use SSE for real-time updates
+        const payload = {
+          ...this.formData,
+          force_skill: 'financial-hotspot-pipeline'
+        }
 
-        this.currentStep = 2 // Content generation
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        this.sseConnection = createSSEConnection('/execute/stream', payload)
 
-        this.currentStep = 3 // Image rendering
-        const result = await executeFinancialHotspotPipeline(this.formData)
+        const connection = await this.sseConnection.start(
+          (data) => {
+            // Handle SSE events
+            console.log('SSE Event:', data)
 
-        this.$emit('execution-complete', result)
+            if (data.event === 'tool_start') {
+              this.currentStep = data.data.step
+            } else if (data.event === 'execution_complete') {
+              this.$emit('execution-complete', data.data)
+              this.isExecuting = false
+            } else if (data.event === 'execution_error') {
+              this.$emit('execution-error', data.data.message)
+              this.isExecuting = false
+            }
+          },
+          (error) => {
+            this.$emit('execution-error', error.message || 'SSE连接失败')
+            this.isExecuting = false
+          },
+          () => {
+            // Stream completed
+            if (this.isExecuting) {
+              this.isExecuting = false
+            }
+          }
+        )
+
+        if (!connection) {
+          throw new Error('Failed to establish SSE connection')
+        }
       } catch (error) {
         this.$emit('execution-error', error.message || '执行失败')
-      } finally {
         this.isExecuting = false
       }
+    }
+  },
+  beforeUnmount() {
+    // Clean up SSE connection
+    if (this.sseConnection) {
+      this.sseConnection.close?.()
     }
   }
 }

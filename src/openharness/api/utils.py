@@ -80,7 +80,8 @@ class StreamingToolExecutor:
 
 async def execute_financial_hotspot_pipeline(
     topic: str,
-    content_type: str,
+    content: Optional[str] = None,
+    content_type: str = "xingfengxiang",
     product_data: Optional[str] = None,
     context: Optional[ToolExecutionContext] = None,
     sse_callback: Optional[Callable[[str, dict], Awaitable[None]]] = None,
@@ -90,6 +91,7 @@ async def execute_financial_hotspot_pipeline(
 
     Args:
         topic: The financial topic to analyze
+        content: Optional user-provided news content or context to enhance the analysis
         content_type: Content framework (xingfengxiang, standard, knowledge_popularization)
         product_data: Optional product data as JSON string
         context: Tool execution context
@@ -127,12 +129,19 @@ async def execute_financial_hotspot_pipeline(
             raise RuntimeError(f"No hotspots found for topic: {topic}")
 
         # Step 2: Generate financial copy
-        copywriter_input = FinancialCopywriterInput(
-            hotspot_data=json.dumps(hotspots),
-            framework=content_type,
-            style="professional_accessible",
-            product_data=product_data,
-        )
+        # Include user-provided content as additional context if available
+        copywriter_input_dict = {
+            "hotspot_data": json.dumps(hotspots),
+            "framework": content_type,
+            "style": "professional_accessible",
+            "product_data": product_data
+        }
+
+        # If user provided content, include it as additional context
+        if content:
+            copywriter_input_dict["user_context"] = content
+
+        copywriter_input = FinancialCopywriterInput(**copywriter_input_dict)
         copywriter_result = await executor.execute_tool_with_streaming(
             "financial_copywriter", copywriter_input, context, 2
         )
@@ -214,62 +223,119 @@ async def execute_prompt_via_existing_mechanism(
             cwd = Path(context_override.get("cwd")) if context_override and context_override.get("cwd") else Path.cwd()
             tool_context = ToolExecutionContext(cwd=cwd)
 
-        # For now, implement a basic version that handles the financial pipeline case
-        # In a full implementation, this would integrate with the existing skill registry
-        # and automatic skill matching system
+        # Load the skill registry to find matching skills
+        registry = load_skill_registry(cwd=tool_context.cwd)
 
-        if force_skill == "financial-hotspot-pipeline":
-            # Parse prompt to extract topic (basic implementation)
-            topic = prompt.strip()
-            if topic.lower().startswith("热点生图："):
-                topic = topic[6:].strip()
-            elif topic.lower().startswith("热点生图"):
-                topic = topic[5:].strip()
+        # If force_skill is specified, use that skill directly
+        if force_skill:
+            skill_def = registry.get(force_skill)
+            if skill_def is None:
+                raise ValueError(f"Skill '{force_skill}' not found in registry")
 
-            # Execute financial pipeline with appropriate SSE support
-            if execution_mode == "stream":
-                result = await execute_financial_hotspot_pipeline(
-                    topic=topic,
-                    content_type="xingfengxiang",
-                    context=tool_context,
-                    sse_callback=sse_callback
-                )
+            # Handle financial hotspot pipeline specifically
+            if force_skill == "financial-hotspot-pipeline":
+                # Parse prompt to extract topic (improved implementation)
+                topic = prompt.strip()
+                # Remove common prefixes
+                if topic.lower().startswith("热点生图："):
+                    topic = topic[6:].strip()
+                elif topic.lower().startswith("热点生图"):
+                    topic = topic[5:].strip()
+
+                # Extract only the first sentence or first 20 characters as topic
+                # This prevents using very long text as search keyword
+                if len(topic) > 50:
+                    # Try to find sentence boundary
+                    sentence_end = -1
+                    for delimiter in ['。', '！', '？', '.', '!', '?', '；', ';']:
+                        pos = topic.find(delimiter)
+                        if pos != -1 and pos < 50:
+                            sentence_end = pos
+                            break
+
+                    if sentence_end != -1:
+                        topic = topic[:sentence_end + 1]
+                    else:
+                        # Fallback to first 20 characters
+                        topic = topic[:20]
+
+                # Remove any remaining whitespace
+                topic = topic.strip()
+
+                # Execute financial pipeline with appropriate SSE support
+                if execution_mode == "stream":
+                    result = await execute_financial_hotspot_pipeline(
+                        topic=topic,
+                        content_type="xingfengxiang",
+                        context=tool_context,
+                        sse_callback=sse_callback
+                    )
+                else:
+                    result = await execute_financial_hotspot_pipeline(
+                        topic=topic,
+                        content_type="xingfengxiang",
+                        context=tool_context
+                    )
+
+                # Build response based on execution mode
+                response_data = {
+                    "status": "success",
+                    "result": result,
+                }
+
+                if execution_mode in ["detailed", "verbose"]:
+                    response_data["execution_trace"] = [
+                        {
+                            "step": 1,
+                            "type": "skill_execution",
+                            "skill_name": "financial-hotspot-pipeline",
+                            "input": {"prompt": prompt, "topic": topic},
+                            "output_summary": "Financial pipeline executed successfully"
+                        }
+                    ]
+
+                return response_data
+
             else:
-                result = await execute_financial_hotspot_pipeline(
-                    topic=topic,
-                    content_type="xingfengxiang",
-                    context=tool_context
-                )
-
-            # Build response based on execution mode
-            response_data = {
-                "status": "success",
-                "result": result,
-            }
-
-            if execution_mode in ["detailed", "verbose"]:
-                response_data["execution_trace"] = [
-                    {
-                        "step": 1,
-                        "type": "skill_execution",
-                        "skill_name": "financial-hotspot-pipeline",
-                        "input": {"prompt": prompt, "topic": topic},
-                        "output_summary": "Financial pipeline executed successfully"
+                # For other forced skills, return a placeholder
+                # In a full implementation, this would execute the actual skill
+                return {
+                    "status": "success",
+                    "result": {
+                        "message": f"Executed skill '{force_skill}' with prompt: {prompt}",
+                        "note": "Full skill execution integration pending for non-financial skills"
                     }
-                ]
-
-            return response_data
+                }
 
         else:
-            # For other prompts, return a placeholder response
-            # In a full implementation, this would use the existing skill matching system
-            return {
-                "status": "success",
-                "result": {
-                    "message": f"Prompt executed: {prompt}",
-                    "note": "Full skill matching integration pending"
+            # Attempt to match skill automatically (simplified implementation)
+            # In a full implementation, this would use the skill matching logic
+            # from the CLI system
+            matched_skills = []
+            all_skills = registry.list_skills()
+            for skill in all_skills:
+                if "financial" in skill.name.lower() or "hotspot" in skill.name.lower():
+                    matched_skills.append(skill.name)
+
+            if matched_skills:
+                # Use the first matched skill as an example
+                return await execute_prompt_via_existing_mechanism(
+                    prompt=prompt,
+                    force_skill=matched_skills[0],
+                    execution_mode=execution_mode,
+                    context_override=context_override,
+                    tool_context=tool_context,
+                    sse_callback=sse_callback,
+                )
+            else:
+                # No matching skill found
+                return {
+                    "status": "success",
+                    "result": {
+                        "message": f"No matching skill found for prompt: {prompt}",
+                        "available_skills": [skill.name for skill in all_skills]
+                    }
                 }
-            }
 
     except Exception as e:
         logger.error(f"Execute prompt error: {e}")
