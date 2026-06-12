@@ -123,6 +123,10 @@ class QueryEngine:
         """Update the active permission checker for future turns."""
         self._permission_checker = checker
 
+    def set_permission_prompt(self, prompt: PermissionPrompt | None) -> None:
+        """Update the permission prompt callback for future turns."""
+        self._permission_prompt = prompt
+
     def _build_coordinator_context_message(self) -> ConversationMessage | None:
         """Build a synthetic user message carrying coordinator runtime context."""
         context = get_coordinator_user_context()
