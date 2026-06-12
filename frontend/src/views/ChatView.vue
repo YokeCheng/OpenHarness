@@ -293,22 +293,29 @@ export default {
         const reader = res.body.getReader()
         const dec = new TextDecoder()
         let buf = ''
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += dec.decode(value, { stream: true })
-          const lines = buf.split('\n')
-          buf = lines.pop()
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            try { this.onEvent(JSON.parse(line.slice(6))) } catch {}
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += dec.decode(value, { stream: true })
+            const lines = buf.split('\n')
+            buf = lines.pop()
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue
+              try { this.onEvent(JSON.parse(line.slice(6))) } catch {}
+            }
           }
+        } finally {
+          reader.releaseLock()
         }
-        // Flush remaining streamBuf
-        this._flushStreamBuf()
+        // Only flush if streamBuf wasn't already flushed by turn_complete
+        if (this.streamBuf || this.activeCards.length) {
+          this._flushStreamBuf()
+        }
       } catch (e) { this.messages.push({ role: 'system', error: e.message }) }
       this.streaming = false
       this.streamBuf = ''
+      this.activeCards = []
       this.scroll()
     },
     _flushStreamBuf() {
