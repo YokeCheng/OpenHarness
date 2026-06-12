@@ -109,6 +109,8 @@
       <div class="input-row">
         <textarea v-model="text" ref="inputEl"
                   @keydown="onKey" @input="onInput"
+                  @compositionstart="isComposing = true"
+                  @compositionend="isComposing = false"
                   placeholder="输入消息... (Enter 发送, Shift+Enter 换行, / 命令)"
                   rows="1"></textarea>
         <button @click="send(text)" class="send-btn" :disabled="!text.trim() || streaming">
@@ -162,6 +164,7 @@ export default {
       messages: [],
       text: '',
       streaming: false,
+      isComposing: false,  // IME composition state
       streamBuf: '',
       activeCards: [],  // Tool cards during current streaming turn
       currentMode: 'full_auto',
@@ -234,6 +237,8 @@ export default {
       el.style.height = Math.min(el.scrollHeight, 150) + 'px'
     },
     onKey(e) {
+      // Skip events during IME composition (Chinese/Japanese/Korean input)
+      if (this.isComposing || e.isComposing || e.keyCode === 229) return
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(this.text); return }
       if (e.key === 'Escape') { this.cmdPicker = false; this.showModePicker = false; if (this.streaming) this.stop(); return }
       if (e.key === 'Tab') {
