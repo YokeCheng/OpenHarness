@@ -39,6 +39,7 @@
               :is-collapsed="card.is_collapsed"
               :is-error="card.is_error"
               @toggle="expandCard(i, card.id)"
+              @collapse="collapseCard(i, card.id)"
             />
           </div>
           <div v-if="m.content" class="msg-text" v-html="md(m.content)"></div>
@@ -62,6 +63,7 @@
               :is-collapsed="card.is_collapsed"
               :is-error="card.is_error"
               @toggle="expandActiveCard(card.id)"
+              @collapse="collapseActiveCard(card.id)"
             />
           </div>
           <div v-if="streamBuf" class="msg-text" v-html="md(streamBuf)"></div>
@@ -206,9 +208,18 @@ export default {
       const card = cards.find(c => c.id === cardId)
       if (card) card.is_collapsed = false
     },
+    collapseCard(msgIndex, cardId) {
+      const cards = this.messages[msgIndex].cards
+      const card = cards.find(c => c.id === cardId)
+      if (card) card.is_collapsed = true
+    },
     expandActiveCard(cardId) {
       const card = this.activeCards.find(c => c.id === cardId)
       if (card) card.is_collapsed = false
+    },
+    collapseActiveCard(cardId) {
+      const card = this.activeCards.find(c => c.id === cardId)
+      if (card) card.is_collapsed = true
     },
     // Input handlers
     onInput() {

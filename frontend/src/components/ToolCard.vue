@@ -9,11 +9,12 @@
 
     <!-- Expanded / running view -->
     <div v-else class="card-expanded">
-      <div class="card-header">
+      <div class="card-header" @click="collapseExpanded">
         <span class="card-icon">{{ icon }}</span>
         <span class="card-badge">{{ toolName }}</span>
         <span v-if="isRunning" class="card-spinner">⏳</span>
         <span v-if="isError" class="card-error-tag">✗ 失败</span>
+        <span v-if="!isRunning" class="card-collapse-btn" title="收回">▾</span>
       </div>
       <div v-if="truncatedInput" class="card-input">
         <div class="card-section-label">输入</div>
@@ -98,8 +99,13 @@ export default {
   },
   methods: {
     toggleCollapse() {
-      if (this.isCollapsed) {
-        this.$emit('toggle', this.toolName)
+      // Collapsed → expand
+      this.$emit('toggle', this.toolName)
+    },
+    collapseExpanded() {
+      // Expanded → collapse (only when not running)
+      if (!this.isRunning) {
+        this.$emit('collapse', this.toolName)
       }
     },
   },
@@ -150,6 +156,18 @@ export default {
   background: var(--tbb);
   color: var(--tbt);
   font-weight: 500;
+}
+.card-collapse-btn {
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--t3);
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.card-collapse-btn:hover {
+  color: var(--t1);
+  background: var(--hov);
 }
 .card-spinner {
   animation: pulse 1.4s infinite;
