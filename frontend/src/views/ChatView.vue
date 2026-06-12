@@ -121,7 +121,7 @@
 </template>
 
 <script>
-import { chatStream, healthCheck } from '@/api/openharness.js'
+import { chatStream, healthCheck, sendChatResponse } from '@/api/openharness.js'
 import ToolCard from '@/components/ToolCard.vue'
 import ModePicker from '@/components/ModePicker.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -383,10 +383,7 @@ export default {
     },
     // Respond to a pending dialog (permission or question)
     respondToDialog(response) {
-      // Import and call sendChatResponse
-      import('@/api/openharness.js').then(api => {
-        api.sendChatResponse(response.request_id, response.type, response.answer, response.allowed)
-      })
+      sendChatResponse(response.request_id, response.type, response.answer, response.allowed)
       this.pendingDialog = null
     },
     stop() {
